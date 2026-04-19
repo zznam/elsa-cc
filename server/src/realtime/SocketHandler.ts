@@ -7,17 +7,25 @@
  */
 
 import type { Server, Socket } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents } from './events';
-import type { ILeaderboardStore } from '../leaderboard/LeaderboardService';
-import { QuizManager } from '../quiz/QuizManager';
-import { RoomManager } from './RoomManager';
-import { createLogger } from '../utils/logger';
-import { AppError, ErrorCode } from '../utils/errors';
 import { config } from '../config';
-import { listQuizzes } from '../data/mockQuizzes';
-import { joinQuizSchema, submitAnswerSchema, startQuizSchema, getLeaderboardSchema } from '../middleware/validation';
+import type { ILeaderboardStore } from '../leaderboard/LeaderboardService';
 import { RateLimiter } from '../middleware/rateLimiter';
+import { getLeaderboardSchema, joinQuizSchema, startQuizSchema, submitAnswerSchema } from '../middleware/validation';
+import type { QuizManager } from '../quiz/QuizManager';
 import type { QuizSession } from '../quiz/QuizSession';
+import type { AnswerSubmission, QuestionPayload } from '../quiz/types';
+import { AppError, ErrorCode } from '../utils/errors';
+import { createLogger } from '../utils/logger';
+import type {
+  ClientToServerEvents,
+  GenericResponse,
+  JoinQuizPayload,
+  JoinQuizResponse,
+  LeaderboardResponse,
+  ServerToClientEvents,
+  SubmitAnswerResponse,
+} from './events';
+import type { RoomManager } from './RoomManager';
 
 const logger = createLogger('SocketHandler');
 
@@ -37,12 +45,7 @@ export class SocketHandler {
   private leaderboardBroadcastTimers: Map<string, NodeJS.Timeout> = new Map();
   private pendingLeaderboardUpdates: Set<string> = new Set();
 
-  constructor(
-    io: TypedServer,
-    quizManager: QuizManager,
-    leaderboard: ILeaderboardStore,
-    roomManager: RoomManager,
-  ) {
+  constructor(io: TypedServer, quizManager: QuizManager, leaderboard: ILeaderboardStore, roomManager: RoomManager) {
     this.io = io;
     this.quizManager = quizManager;
     this.leaderboard = leaderboard;
@@ -88,8 +91,8 @@ export class SocketHandler {
 
   private handleJoinQuiz(
     socket: TypedSocket,
-    data: { quizId: string; username: string },
-    callback: (response: any) => void,
+    data: JoinQuizPayload,
+    callback: (response: JoinQuizResponse) => void,
   ): void {
     try {
       const validated = joinQuizSchema.parse(data);
@@ -139,8 +142,8 @@ export class SocketHandler {
 
   private handleSubmitAnswer(
     socket: TypedSocket,
-    data: { quizId: string; questionId: string; selectedOptionIndex: number; clientTimestamp: number },
-    callback: (response: any) => void,
+    data: AnswerSubmission,
+    callback: (response: SubmitAnswerResponse) => void,
   ): void {
     try {
       const validated = submitAnswerSchema.parse(data);
@@ -152,7 +155,11 @@ export class SocketHandler {
       }
 
       if (!answerRateLimiter.isAllowed(connection.userId)) {
-        callback({ success: false, error: 'Too fast! Please wait before submitting again.', errorCode: 'RATE_LIMITED' });
+        callback({
+          success: false,
+          error: 'Too fast! Please wait before submitting again.',
+          errorCode: 'RATE_LIMITED',
+        });
         return;
       }
 
@@ -189,9 +196,9 @@ export class SocketHandler {
   }
 
   private handleStartQuiz(
-    socket: TypedSocket,
+    _socket: TypedSocket,
     data: { quizId: string },
-    callback: (response: any) => void,
+    callback: (response: GenericResponse) => void,
   ): void {
     try {
       const validated = startQuizSchema.parse(data);
@@ -212,12 +219,22 @@ export class SocketHandler {
   }
 
   private handleGetLeaderboard(
-    socket: TypedSocket,
+    _socket: TypedSocket,
     data: { quizId: string },
-    callback: (response: any) => void,
+    callback: (response: LeaderboardResponse) => void,
   ): void {
+    let quizId: string;
+    try {
+      quizId = getLeaderboardSchema.parse(data).quizId;
+    } catch (err) {
+      const error = err instanceof AppError ? err : new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid payload');
+      logger.warn('Get leaderboard validation failed', { error: error.message });
+      callback({ success: false, error: error.message });
+      return;
+    }
+
     this.leaderboard
-      .getLeaderboard(getLeaderboardSchema.parse(data).quizId)
+      .getLeaderboard(quizId)
       .then((leaderboard) => {
         callback({ success: true, leaderboard });
       })
@@ -246,7 +263,7 @@ export class SocketHandler {
       });
     });
 
-    session.on('questionStarted', (payload: any) => {
+    session.on('questionStarted', (payload: QuestionPayload) => {
       this.io.to(quizId).emit('question', payload);
     });
 

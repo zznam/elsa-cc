@@ -6,22 +6,21 @@
  * Handles graceful shutdown.
  */
 
+import { createServer } from 'node:http';
+import path from 'node:path';
 import express from 'express';
-import { createServer } from 'http';
 import { Server } from 'socket.io';
-import path from 'path';
-
 import { config } from './config';
-import { createLogger } from './utils/logger';
-import { QuizManager } from './quiz/QuizManager';
+import { listQuizzes } from './data/mockQuizzes';
 import { InMemoryLeaderboard } from './leaderboard/InMemoryLeaderboard';
-import { RedisLeaderboard } from './leaderboard/RedisLeaderboard';
 import type { ILeaderboardStore } from './leaderboard/LeaderboardService';
-import { RoomManager } from './realtime/RoomManager';
-import { SocketHandler } from './realtime/SocketHandler';
+import { RedisLeaderboard } from './leaderboard/RedisLeaderboard';
 import { createHealthCheck } from './monitoring/healthcheck';
 import { metrics } from './monitoring/metrics';
-import { listQuizzes } from './data/mockQuizzes';
+import { QuizManager } from './quiz/QuizManager';
+import { RoomManager } from './realtime/RoomManager';
+import { SocketHandler } from './realtime/SocketHandler';
+import { createLogger } from './utils/logger';
 
 const logger = createLogger('Server');
 
@@ -90,7 +89,11 @@ async function main(): Promise<void> {
       port: config.port,
       leaderboardType: config.redisUrl ? 'redis' : 'in-memory',
     });
-    logger.info(`📋 Available quizzes: ${listQuizzes().map((q) => q.id).join(', ')}`);
+    logger.info(
+      `📋 Available quizzes: ${listQuizzes()
+        .map((q) => q.id)
+        .join(', ')}`,
+    );
     logger.info(`🏥 Health check: http://localhost:${config.port}/health`);
   });
 
@@ -110,11 +113,12 @@ async function main(): Promise<void> {
       process.exit(0);
     });
 
-    // Prevent hanging if close callbacks stall
+    // Prevent hanging if close callbacks stall; `.unref()` keeps the timer
+    // from blocking the event loop if shutdown completes first.
     setTimeout(() => {
       logger.error('Forced shutdown after timeout');
       process.exit(1);
-    }, 10000);
+    }, 10000).unref();
   };
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));

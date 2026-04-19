@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { QuizManager } from '../../src/quiz/QuizManager';
 
 describe('QuizManager', () => {
@@ -32,7 +32,7 @@ describe('QuizManager', () => {
     it('should create a new session after the previous one finishes', () => {
       manager = new QuizManager();
       const s1 = manager.getOrCreateSession('vocab-101');
-      const p = s1.addParticipant('TestUser');
+      const _p = s1.addParticipant('TestUser');
       s1.start();
 
       // Manually set state to FINISHED via the internal mechanism

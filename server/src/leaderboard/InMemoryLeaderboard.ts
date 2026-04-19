@@ -6,9 +6,9 @@
  * Suitable for development, testing, and small-scale deployments.
  */
 
-import type { LeaderboardEntry, Leaderboard } from '../quiz/types';
-import type { ILeaderboardStore } from './LeaderboardService';
+import type { Leaderboard, LeaderboardEntry } from '../quiz/types';
 import { createLogger } from '../utils/logger';
+import type { ILeaderboardStore } from './LeaderboardService';
 
 const logger = createLogger('InMemoryLeaderboard');
 
@@ -22,12 +22,7 @@ export class InMemoryLeaderboard implements ILeaderboardStore {
   /** Map of quizId → Map of userId → UserData */
   private leaderboards: Map<string, Map<string, UserData>> = new Map();
 
-  async updateScore(
-    quizId: string,
-    userId: string,
-    username: string,
-    scoreIncrement: number,
-  ): Promise<void> {
+  async updateScore(quizId: string, userId: string, username: string, scoreIncrement: number): Promise<void> {
     let quizBoard = this.leaderboards.get(quizId);
     if (!quizBoard) {
       quizBoard = new Map();

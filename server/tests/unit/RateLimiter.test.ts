@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RateLimiter } from '../../src/middleware/rateLimiter';
 
 describe('RateLimiter', () => {
@@ -44,14 +44,14 @@ describe('RateLimiter', () => {
   it('should handle a rapid flood of requests accurately', () => {
     const limiter = new RateLimiter(5, 1000);
     let allowedCount = 0;
-    
+
     // Simulate 50 requests in a tight loop
     for (let i = 0; i < 50; i++) {
       if (limiter.isAllowed('flooder')) {
         allowedCount++;
       }
     }
-    
+
     // Only the first 5 should be allowed
     expect(allowedCount).toBe(5);
   });

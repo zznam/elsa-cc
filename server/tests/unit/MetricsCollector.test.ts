@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { metrics, METRIC } from '../../src/monitoring/metrics';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { METRIC, metrics } from '../../src/monitoring/metrics';
 
 describe('MetricsCollector', () => {
   beforeEach(() => {
@@ -21,7 +21,7 @@ describe('MetricsCollector', () => {
       metrics.increment('new_counter');
       const all = metrics.getAll();
       const counters = all.counters as Record<string, number>;
-      expect(counters['new_counter']).toBe(1);
+      expect(counters.new_counter).toBe(1);
     });
   });
 

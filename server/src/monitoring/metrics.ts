@@ -4,31 +4,19 @@
  * For this implementation, they're tracked in-memory and exposed via HTTP.
  */
 
-import { createLogger } from '../utils/logger';
-
-const logger = createLogger('Metrics');
-
-interface MetricPoint {
-  value: number;
-  timestamp: number;
-}
-
 class MetricsCollector {
   private counters: Map<string, number> = new Map();
   private gauges: Map<string, number> = new Map();
   private histograms: Map<string, number[]> = new Map();
-
 
   increment(name: string, value: number = 1): void {
     const current = this.counters.get(name) || 0;
     this.counters.set(name, current + value);
   }
 
-
   setGauge(name: string, value: number): void {
     this.gauges.set(name, value);
   }
-
 
   recordHistogram(name: string, value: number): void {
     const values = this.histograms.get(name) || [];
@@ -39,7 +27,6 @@ class MetricsCollector {
     }
     this.histograms.set(name, values);
   }
-
 
   getAll(): Record<string, unknown> {
     const result: Record<string, unknown> = {
@@ -63,7 +50,6 @@ class MetricsCollector {
 
     return result;
   }
-
 
   reset(): void {
     this.counters.clear();

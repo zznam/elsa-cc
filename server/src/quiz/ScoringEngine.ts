@@ -10,8 +10,8 @@
  * All scoring is server-side to prevent cheating.
  */
 
-import type { Question, ScoreResult } from './types';
 import { createLogger } from '../utils/logger';
+import type { Question, ScoreResult } from './types';
 
 const logger = createLogger('ScoringEngine');
 
@@ -81,10 +81,7 @@ export class ScoringEngine {
 
     // Calculate streak bonus
     const newStreak = currentStreak + 1;
-    const streakMultiplier = Math.min(
-      newStreak * STREAK_BONUS_PER_CORRECT,
-      MAX_STREAK_BONUS_MULTIPLIER,
-    );
+    const streakMultiplier = Math.min(newStreak * STREAK_BONUS_PER_CORRECT, MAX_STREAK_BONUS_MULTIPLIER);
     const streakBonus = Math.round(basePoints * streakMultiplier);
 
     const pointsEarned = basePoints + timeBonus + streakBonus;
@@ -118,9 +115,7 @@ export class ScoringEngine {
    */
   isValidOptionIndex(question: Question, selectedOptionIndex: number): boolean {
     return (
-      Number.isInteger(selectedOptionIndex) &&
-      selectedOptionIndex >= 0 &&
-      selectedOptionIndex < question.options.length
+      Number.isInteger(selectedOptionIndex) && selectedOptionIndex >= 0 && selectedOptionIndex < question.options.length
     );
   }
 }

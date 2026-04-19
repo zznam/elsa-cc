@@ -20,8 +20,8 @@ export function createHealthCheck(quizManager: QuizManager, roomManager: RoomMan
         totalParticipants: metrics.totalParticipants,
         activeConnections: roomManager.getActiveConnectionCount(),
         memoryUsage: {
-          rss: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
-          heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
+          rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
+          heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
         },
       },
     });

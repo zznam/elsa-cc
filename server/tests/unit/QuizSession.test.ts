@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { QuizSession } from '../../src/quiz/QuizSession';
 import type { Quiz } from '../../src/quiz/types';
 
@@ -7,8 +7,24 @@ const mockQuiz: Quiz = {
   title: 'Test Quiz',
   description: 'A test quiz',
   questions: [
-    { id: 'q1', word: 'Test1', prompt: 'Q1?', options: ['A', 'B', 'C', 'D'], correctOptionIndex: 0, timeLimitSeconds: 10, difficulty: 'easy' },
-    { id: 'q2', word: 'Test2', prompt: 'Q2?', options: ['A', 'B', 'C', 'D'], correctOptionIndex: 1, timeLimitSeconds: 10, difficulty: 'medium' },
+    {
+      id: 'q1',
+      word: 'Test1',
+      prompt: 'Q1?',
+      options: ['A', 'B', 'C', 'D'],
+      correctOptionIndex: 0,
+      timeLimitSeconds: 10,
+      difficulty: 'easy',
+    },
+    {
+      id: 'q2',
+      word: 'Test2',
+      prompt: 'Q2?',
+      options: ['A', 'B', 'C', 'D'],
+      correctOptionIndex: 1,
+      timeLimitSeconds: 10,
+      difficulty: 'medium',
+    },
   ],
 };
 
@@ -60,14 +76,19 @@ describe('QuizSession', () => {
     it('should maintain score and streak continuity after reconnect', () => {
       const p = session.addParticipant('Alice');
       session.start();
-      
+
       // Alice answers correctly
-      const result = session.submitAnswer(p.userId, { quizId: 'test-quiz', questionId: 'q1', selectedOptionIndex: 0, clientTimestamp: Date.now() });
-      
+      const result = session.submitAnswer(p.userId, {
+        quizId: 'test-quiz',
+        questionId: 'q1',
+        selectedOptionIndex: 0,
+        clientTimestamp: Date.now(),
+      });
+
       // Disconnect and reconnect
       session.disconnectParticipant(p.userId);
       session.reconnectParticipant(p.userId);
-      
+
       // Verify state is preserved
       const reconnectedP = session.getParticipant(p.userId)!;
       expect(reconnectedP.totalScore).toBe(result.totalScore);
@@ -95,7 +116,9 @@ describe('QuizSession', () => {
 
     it('should emit quizStarted event', () => {
       let started = false;
-      session.on('quizStarted', () => { started = true; });
+      session.on('quizStarted', () => {
+        started = true;
+      });
       session.addParticipant('Alice');
       session.start();
       expect(started).toBe(true);
@@ -103,7 +126,9 @@ describe('QuizSession', () => {
 
     it('should emit questionStarted on start', () => {
       let questionData: any = null;
-      session.on('questionStarted', (data) => { questionData = data; });
+      session.on('questionStarted', (data) => {
+        questionData = data;
+      });
       session.addParticipant('Alice');
       session.start();
       expect(questionData).toBeTruthy();
@@ -117,7 +142,10 @@ describe('QuizSession', () => {
       const p = session.addParticipant('Alice');
       session.start();
       const result = session.submitAnswer(p.userId, {
-        quizId: 'test-quiz', questionId: 'q1', selectedOptionIndex: 0, clientTimestamp: Date.now(),
+        quizId: 'test-quiz',
+        questionId: 'q1',
+        selectedOptionIndex: 0,
+        clientTimestamp: Date.now(),
       });
       expect(result.correct).toBe(true);
       expect(result.pointsEarned).toBeGreaterThan(0);
@@ -126,14 +154,33 @@ describe('QuizSession', () => {
     it('should reject duplicate answers', () => {
       const p = session.addParticipant('Alice');
       session.start();
-      session.submitAnswer(p.userId, { quizId: 'test-quiz', questionId: 'q1', selectedOptionIndex: 0, clientTimestamp: Date.now() });
-      expect(() => session.submitAnswer(p.userId, { quizId: 'test-quiz', questionId: 'q1', selectedOptionIndex: 1, clientTimestamp: Date.now() })).toThrow();
+      session.submitAnswer(p.userId, {
+        quizId: 'test-quiz',
+        questionId: 'q1',
+        selectedOptionIndex: 0,
+        clientTimestamp: Date.now(),
+      });
+      expect(() =>
+        session.submitAnswer(p.userId, {
+          quizId: 'test-quiz',
+          questionId: 'q1',
+          selectedOptionIndex: 1,
+          clientTimestamp: Date.now(),
+        }),
+      ).toThrow();
     });
 
     it('should reject answers from non-participants', () => {
       session.addParticipant('Alice');
       session.start();
-      expect(() => session.submitAnswer('unknown', { quizId: 'test-quiz', questionId: 'q1', selectedOptionIndex: 0, clientTimestamp: Date.now() })).toThrow();
+      expect(() =>
+        session.submitAnswer('unknown', {
+          quizId: 'test-quiz',
+          questionId: 'q1',
+          selectedOptionIndex: 0,
+          clientTimestamp: Date.now(),
+        }),
+      ).toThrow();
     });
 
     it('should reject out-of-sync or stale question submissions', () => {
@@ -141,12 +188,14 @@ describe('QuizSession', () => {
       session.start(); // Starts q1
 
       // Submitting answer for q2 when q1 is active
-      expect(() => session.submitAnswer(p.userId, { 
-        quizId: 'test-quiz', 
-        questionId: 'q2', 
-        selectedOptionIndex: 0, 
-        clientTimestamp: Date.now() 
-      })).toThrow(/not the current question/i);
+      expect(() =>
+        session.submitAnswer(p.userId, {
+          quizId: 'test-quiz',
+          questionId: 'q2',
+          selectedOptionIndex: 0,
+          clientTimestamp: Date.now(),
+        }),
+      ).toThrow(/not the current question/i);
     });
   });
 });

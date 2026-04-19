@@ -9,9 +9,9 @@
  */
 
 import Redis from 'ioredis';
-import type { LeaderboardEntry, Leaderboard } from '../quiz/types';
-import type { ILeaderboardStore } from './LeaderboardService';
+import type { Leaderboard, LeaderboardEntry } from '../quiz/types';
 import { createLogger } from '../utils/logger';
+import type { ILeaderboardStore } from './LeaderboardService';
 
 const logger = createLogger('RedisLeaderboard');
 
@@ -59,12 +59,7 @@ export class RedisLeaderboard implements ILeaderboardStore {
     return `${USERNAME_KEY_PREFIX}${quizId}`;
   }
 
-  async updateScore(
-    quizId: string,
-    userId: string,
-    username: string,
-    scoreIncrement: number,
-  ): Promise<void> {
+  async updateScore(quizId: string, userId: string, username: string, scoreIncrement: number): Promise<void> {
     const lbKey = this.leaderboardKey(quizId);
     const unKey = this.usernameKey(quizId);
 

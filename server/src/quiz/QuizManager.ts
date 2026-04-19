@@ -8,12 +8,11 @@
  *   - Provide session metrics
  */
 
-import type { Quiz } from './types';
-import { QuizSession } from './QuizSession';
-import { getQuizById } from '../data/mockQuizzes';
-import { createLogger } from '../utils/logger';
-import { AppError, ErrorCode } from '../utils/errors';
 import { config } from '../config';
+import { getQuizById } from '../data/mockQuizzes';
+import { AppError, ErrorCode } from '../utils/errors';
+import { createLogger } from '../utils/logger';
+import { QuizSession } from './QuizSession';
 
 const logger = createLogger('QuizManager');
 
@@ -78,7 +77,7 @@ export class QuizManager {
    * Remove finished sessions that have been inactive.
    */
   private cleanupSessions(): void {
-    const now = Date.now();
+    const _now = Date.now();
     let cleaned = 0;
 
     for (const [quizId, session] of this.sessions.entries()) {

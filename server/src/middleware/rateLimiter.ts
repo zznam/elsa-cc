@@ -51,7 +51,6 @@ export class RateLimiter {
     return true;
   }
 
-
   private cleanup(): void {
     const now = Date.now();
     for (const [key, entry] of this.entries.entries()) {

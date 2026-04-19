@@ -5,7 +5,7 @@
  * implementations without changing the consuming code.
  */
 
-import type { LeaderboardEntry, Leaderboard } from '../quiz/types';
+import type { Leaderboard, LeaderboardEntry } from '../quiz/types';
 
 /**
  * Interface for leaderboard storage backends.

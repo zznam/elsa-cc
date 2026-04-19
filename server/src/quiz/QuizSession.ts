@@ -11,25 +11,21 @@
  *   - Emit events for real-time broadcasting
  */
 
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 import { v4 as uuidv4 } from 'uuid';
+import { AppError, DuplicateAnswerError, ErrorCode } from '../utils/errors';
+import { createLogger } from '../utils/logger';
+import { ScoringEngine } from './ScoringEngine';
 import type {
-  Quiz,
-  Question,
+  AnswerSubmission,
   Participant,
+  Question,
+  QuestionPayload,
+  Quiz,
   QuizSessionState,
   ScoreResult,
-  QuestionPayload,
-  AnswerSubmission,
 } from './types';
 import { QuizSessionState as State } from './types';
-import { ScoringEngine } from './ScoringEngine';
-import { createLogger } from '../utils/logger';
-import {
-  AppError,
-  ErrorCode,
-  DuplicateAnswerError,
-} from '../utils/errors';
 
 const logger = createLogger('QuizSession');
 
@@ -107,7 +103,10 @@ export class QuizSession extends EventEmitter {
   /** Add a participant. Rejects if quiz has already started, full, or username is taken. */
   addParticipant(username: string): Participant {
     if (this._state !== State.WAITING) {
-      throw new AppError(ErrorCode.QUIZ_ALREADY_STARTED, `Cannot join quiz '${this.quiz.id}': session is already in ${this._state} state`);
+      throw new AppError(
+        ErrorCode.QUIZ_ALREADY_STARTED,
+        `Cannot join quiz '${this.quiz.id}': session is already in ${this._state} state`,
+      );
     }
 
     if (this.participants.size >= this.maxParticipants) {
@@ -163,11 +162,9 @@ export class QuizSession extends EventEmitter {
     return participant || null;
   }
 
-
   getParticipant(userId: string): Participant | undefined {
     return this.participants.get(userId);
   }
-
 
   getParticipants(): Participant[] {
     return Array.from(this.participants.values());
@@ -237,7 +234,6 @@ export class QuizSession extends EventEmitter {
     }, question.timeLimitSeconds * 1000);
   }
 
-
   private handleQuestionTimeout(): void {
     const question = this.currentQuestion;
     if (!question) return;
@@ -254,7 +250,6 @@ export class QuizSession extends EventEmitter {
       this.advanceToNextQuestion();
     }, 3000);
   }
-
 
   private endQuiz(): void {
     if (this.questionTimer) {
@@ -276,7 +271,10 @@ export class QuizSession extends EventEmitter {
   // ─── Answer Processing ──────────────────────────────────────────────
   submitAnswer(userId: string, submission: AnswerSubmission): ScoreResult {
     if (this._state !== State.ACTIVE) {
-      throw new AppError(ErrorCode.QUIZ_ALREADY_FINISHED, `Cannot submit answer: quiz '${this.quiz.id}' is in ${this._state} state`);
+      throw new AppError(
+        ErrorCode.QUIZ_ALREADY_FINISHED,
+        `Cannot submit answer: quiz '${this.quiz.id}' is in ${this._state} state`,
+      );
     }
 
     const participant = this.participants.get(userId);
@@ -286,7 +284,10 @@ export class QuizSession extends EventEmitter {
 
     const question = this.currentQuestion;
     if (!question || question.id !== submission.questionId) {
-      throw new AppError(ErrorCode.INVALID_ANSWER, `Question '${submission.questionId}' is not the current question for quiz '${this.quiz.id}'`);
+      throw new AppError(
+        ErrorCode.INVALID_ANSWER,
+        `Question '${submission.questionId}' is not the current question for quiz '${this.quiz.id}'`,
+      );
     }
 
     if (participant.answeredQuestions.has(question.id)) {
@@ -294,7 +295,10 @@ export class QuizSession extends EventEmitter {
     }
 
     if (!this.scoringEngine.isValidOptionIndex(question, submission.selectedOptionIndex)) {
-      throw new AppError(ErrorCode.INVALID_ANSWER, `Invalid option index ${submission.selectedOptionIndex} for question '${question.id}' (${question.options.length} options available)`);
+      throw new AppError(
+        ErrorCode.INVALID_ANSWER,
+        `Invalid option index ${submission.selectedOptionIndex} for question '${question.id}' (${question.options.length} options available)`,
+      );
     }
 
     const responseTimeMs = Date.now() - this.questionStartTime;
@@ -332,13 +336,9 @@ export class QuizSession extends EventEmitter {
     const question = this.currentQuestion;
     if (!question) return;
 
-    const connectedParticipants = Array.from(this.participants.values()).filter(
-      (p) => p.isConnected,
-    );
+    const connectedParticipants = Array.from(this.participants.values()).filter((p) => p.isConnected);
 
-    const allAnswered = connectedParticipants.every((p) =>
-      p.answeredQuestions.has(question.id),
-    );
+    const allAnswered = connectedParticipants.every((p) => p.answeredQuestions.has(question.id));
 
     if (allAnswered && connectedParticipants.length > 0) {
       logger.info('All participants answered — advancing', {
@@ -373,7 +373,6 @@ export class QuizSession extends EventEmitter {
       difficulty: question.difficulty,
     };
   }
-
 
   destroy(): void {
     if (this.questionTimer) {

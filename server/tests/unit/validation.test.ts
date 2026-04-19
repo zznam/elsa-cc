@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { joinQuizSchema, submitAnswerSchema, startQuizSchema, getLeaderboardSchema, validate } from '../../src/middleware/validation';
+import { describe, expect, it } from 'vitest';
+import {
+  getLeaderboardSchema,
+  joinQuizSchema,
+  startQuizSchema,
+  submitAnswerSchema,
+  validate,
+} from '../../src/middleware/validation';
 
 describe('Zod validation schemas', () => {
   describe('joinQuizSchema', () => {
@@ -43,21 +49,25 @@ describe('Zod validation schemas', () => {
     });
 
     it('should reject negative option index', () => {
-      expect(() => submitAnswerSchema.parse({
-        quizId: 'vocab-101',
-        questionId: 'q1',
-        selectedOptionIndex: -1,
-        clientTimestamp: Date.now(),
-      })).toThrow();
+      expect(() =>
+        submitAnswerSchema.parse({
+          quizId: 'vocab-101',
+          questionId: 'q1',
+          selectedOptionIndex: -1,
+          clientTimestamp: Date.now(),
+        }),
+      ).toThrow();
     });
 
     it('should reject non-integer option index', () => {
-      expect(() => submitAnswerSchema.parse({
-        quizId: 'vocab-101',
-        questionId: 'q1',
-        selectedOptionIndex: 1.5,
-        clientTimestamp: Date.now(),
-      })).toThrow();
+      expect(() =>
+        submitAnswerSchema.parse({
+          quizId: 'vocab-101',
+          questionId: 'q1',
+          selectedOptionIndex: 1.5,
+          clientTimestamp: Date.now(),
+        }),
+      ).toThrow();
     });
 
     it('should reject missing fields', () => {

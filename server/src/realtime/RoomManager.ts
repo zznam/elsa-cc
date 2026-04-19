@@ -23,7 +23,6 @@ export class RoomManager {
   /** User ID → Socket ID (for reconnection) */
   private userToSocket: Map<string, string> = new Map();
 
-
   joinRoom(socket: Socket, quizId: string, userId: string, username: string): void {
     socket.join(quizId);
 
@@ -61,21 +60,17 @@ export class RoomManager {
     return connection;
   }
 
-
   getConnection(socketId: string): UserConnection | undefined {
     return this.connections.get(socketId);
   }
-
 
   getSocketIdForUser(userId: string): string | undefined {
     return this.userToSocket.get(userId);
   }
 
-
   getQuizIdForSocket(socketId: string): string | undefined {
     return this.connections.get(socketId)?.quizId;
   }
-
 
   getActiveConnectionCount(): number {
     return this.connections.size;

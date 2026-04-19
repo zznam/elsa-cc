@@ -23,12 +23,7 @@ export class AppError extends Error {
   public readonly statusCode: number;
   public readonly isOperational: boolean;
 
-  constructor(
-    code: ErrorCode,
-    message: string,
-    statusCode: number = 400,
-    isOperational: boolean = true,
-  ) {
+  constructor(code: ErrorCode, message: string, statusCode: number = 400, isOperational: boolean = true) {
     super(message);
     this.code = code;
     this.statusCode = statusCode;

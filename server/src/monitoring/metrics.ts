@@ -18,45 +18,35 @@ class MetricsCollector {
   private gauges: Map<string, number> = new Map();
   private histograms: Map<string, number[]> = new Map();
 
-  /**
-   * Increment a counter metric.
-   */
+
   increment(name: string, value: number = 1): void {
     const current = this.counters.get(name) || 0;
     this.counters.set(name, current + value);
   }
 
-  /**
-   * Set a gauge metric to a specific value.
-   */
+
   setGauge(name: string, value: number): void {
     this.gauges.set(name, value);
   }
 
-  /**
-   * Record a value in a histogram (for percentile calculations).
-   */
+
   recordHistogram(name: string, value: number): void {
     const values = this.histograms.get(name) || [];
     values.push(value);
-    // Keep last 1000 values to avoid unbounded growth
+    // Cap at 1000 values to avoid unbounded growth
     if (values.length > 1000) {
       values.shift();
     }
     this.histograms.set(name, values);
   }
 
-  /**
-   * Get all metrics as a JSON-serializable object.
-   */
+
   getAll(): Record<string, unknown> {
     const result: Record<string, unknown> = {
       counters: Object.fromEntries(this.counters),
       gauges: Object.fromEntries(this.gauges),
       histograms: {} as Record<string, unknown>,
     };
-
-    // Calculate percentiles for histograms
     const histograms = result.histograms as Record<string, unknown>;
     for (const [name, values] of this.histograms.entries()) {
       const sorted = [...values].sort((a, b) => a - b);
@@ -74,9 +64,7 @@ class MetricsCollector {
     return result;
   }
 
-  /**
-   * Reset all metrics.
-   */
+
   reset(): void {
     this.counters.clear();
     this.gauges.clear();

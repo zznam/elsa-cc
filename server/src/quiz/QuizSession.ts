@@ -102,22 +102,18 @@ export class QuizSession extends EventEmitter {
     return Math.round((Date.now() - this.startedAt) / 1000);
   }
 
-  // ─── Participant Management ───────────────────────────────────────────────
+  // ─── Participant Management ─────────────────────────────────────────
 
-  /**
-   * Add a participant to the quiz session.
-   * @returns The created participant with assigned userId
-   */
+  /** Add a participant. Rejects if quiz is finished, full, or username is taken. */
   addParticipant(username: string): Participant {
     if (this._state === State.FINISHED) {
-      throw new AppError(ErrorCode.QUIZ_ALREADY_FINISHED, 'This quiz has already ended');
+      throw new AppError(ErrorCode.QUIZ_ALREADY_FINISHED, `Cannot join quiz '${this.quiz.id}': session has already ended`);
     }
 
     if (this.participants.size >= this.maxParticipants) {
-      throw new AppError(ErrorCode.QUIZ_FULL, 'Quiz session is full');
+      throw new AppError(ErrorCode.QUIZ_FULL, `Quiz session '${this.quiz.id}' is full (${this.maxParticipants} max)`);
     }
 
-    // Check for duplicate username
     for (const p of this.participants.values()) {
       if (p.username === username) {
         throw new AppError(ErrorCode.USER_ALREADY_JOINED, `Username "${username}" is already taken`);
@@ -147,9 +143,7 @@ export class QuizSession extends EventEmitter {
     return participant;
   }
 
-  /**
-   * Mark a participant as disconnected (don't remove — they might reconnect).
-   */
+  /** Mark as disconnected — keep state so they can reconnect mid-quiz. */
   disconnectParticipant(userId: string): void {
     const participant = this.participants.get(userId);
     if (participant) {
@@ -159,9 +153,7 @@ export class QuizSession extends EventEmitter {
     }
   }
 
-  /**
-   * Reconnect a previously disconnected participant.
-   */
+  /** Restore a previously disconnected participant. */
   reconnectParticipant(userId: string): Participant | null {
     const participant = this.participants.get(userId);
     if (participant) {
@@ -171,30 +163,24 @@ export class QuizSession extends EventEmitter {
     return participant || null;
   }
 
-  /**
-   * Get a participant by userId.
-   */
+
   getParticipant(userId: string): Participant | undefined {
     return this.participants.get(userId);
   }
 
-  /**
-   * Get all participants as an array.
-   */
+
   getParticipants(): Participant[] {
     return Array.from(this.participants.values());
   }
 
   // ─── Quiz Lifecycle ───────────────────────────────────────────────────────
 
-  /**
-   * Start the quiz — transitions from WAITING to ACTIVE.
-   */
+  /** Transition from WAITING → ACTIVE, then begin question delivery. */
   start(): void {
     if (this._state !== State.WAITING) {
       throw new AppError(
         ErrorCode.QUIZ_ALREADY_STARTED,
-        'Quiz has already started',
+        `Cannot start quiz '${this.quiz.id}': already in ${this._state} state`,
       );
     }
 
@@ -211,11 +197,7 @@ export class QuizSession extends EventEmitter {
     this.advanceToNextQuestion();
   }
 
-  /**
-   * Advance to the next question or end the quiz.
-   */
   private advanceToNextQuestion(): void {
-    // Clear any existing timer
     if (this.questionTimer) {
       clearTimeout(this.questionTimer);
       this.questionTimer = null;
@@ -250,15 +232,12 @@ export class QuizSession extends EventEmitter {
 
     this.emit('questionStarted', payload);
 
-    // Set timer for question timeout
     this.questionTimer = setTimeout(() => {
       this.handleQuestionTimeout();
     }, question.timeLimitSeconds * 1000);
   }
 
-  /**
-   * Handle question timeout — emit event and advance.
-   */
+
   private handleQuestionTimeout(): void {
     const question = this.currentQuestion;
     if (!question) return;
@@ -276,9 +255,7 @@ export class QuizSession extends EventEmitter {
     }, 3000);
   }
 
-  /**
-   * End the quiz — transitions from ACTIVE to FINISHED.
-   */
+
   private endQuiz(): void {
     if (this.questionTimer) {
       clearTimeout(this.questionTimer);
@@ -296,41 +273,32 @@ export class QuizSession extends EventEmitter {
     this.emit('quizEnded');
   }
 
-  // ─── Answer Processing ────────────────────────────────────────────────────
-
-  /**
-   * Process an answer submission from a participant.
-   * @returns ScoreResult with the scoring breakdown
-   */
+  // ─── Answer Processing ──────────────────────────────────────────────
   submitAnswer(userId: string, submission: AnswerSubmission): ScoreResult {
     if (this._state !== State.ACTIVE) {
-      throw new AppError(ErrorCode.QUIZ_ALREADY_FINISHED, 'Quiz is not active');
+      throw new AppError(ErrorCode.QUIZ_ALREADY_FINISHED, `Cannot submit answer: quiz '${this.quiz.id}' is in ${this._state} state`);
     }
 
     const participant = this.participants.get(userId);
     if (!participant) {
-      throw new AppError(ErrorCode.USER_NOT_IN_QUIZ, 'User is not in this quiz session');
+      throw new AppError(ErrorCode.USER_NOT_IN_QUIZ, `User '${userId}' is not in quiz session '${this.sessionId}'`);
     }
 
     const question = this.currentQuestion;
     if (!question || question.id !== submission.questionId) {
-      throw new AppError(ErrorCode.INVALID_ANSWER, 'Invalid question — the quiz may have moved on');
+      throw new AppError(ErrorCode.INVALID_ANSWER, `Question '${submission.questionId}' is not the current question for quiz '${this.quiz.id}'`);
     }
 
-    // Prevent duplicate answers
     if (participant.answeredQuestions.has(question.id)) {
       throw new DuplicateAnswerError();
     }
 
-    // Validate option index
     if (!this.scoringEngine.isValidOptionIndex(question, submission.selectedOptionIndex)) {
-      throw new AppError(ErrorCode.INVALID_ANSWER, 'Invalid answer option');
+      throw new AppError(ErrorCode.INVALID_ANSWER, `Invalid option index ${submission.selectedOptionIndex} for question '${question.id}' (${question.options.length} options available)`);
     }
 
-    // Calculate response time
     const responseTimeMs = Date.now() - this.questionStartTime;
 
-    // Calculate score
     const result = this.scoringEngine.calculateScore(
       question,
       submission.selectedOptionIndex,
@@ -339,7 +307,6 @@ export class QuizSession extends EventEmitter {
       participant.totalScore,
     );
 
-    // Update participant state
     participant.answeredQuestions.add(question.id);
     participant.totalScore = result.totalScore;
     participant.streak = result.currentStreak;
@@ -355,15 +322,12 @@ export class QuizSession extends EventEmitter {
 
     this.emit('scoreUpdated', userId, result);
 
-    // Check if all connected participants have answered
     this.checkAllAnswered();
 
     return result;
   }
 
-  /**
-   * If all connected participants have answered, advance immediately.
-   */
+  /** If all connected participants answered, skip the timer and advance. */
   private checkAllAnswered(): void {
     const question = this.currentQuestion;
     if (!question) return;
@@ -393,9 +357,7 @@ export class QuizSession extends EventEmitter {
     }
   }
 
-  /**
-   * Get current question as a client-safe payload (no correct answer).
-   */
+  /** Build a client-safe payload — excludes correctOptionIndex to prevent cheating. */
   getCurrentQuestionPayload(): QuestionPayload | null {
     const question = this.currentQuestion;
     if (!question) return null;
@@ -412,9 +374,7 @@ export class QuizSession extends EventEmitter {
     };
   }
 
-  /**
-   * Clean up timers and resources.
-   */
+
   destroy(): void {
     if (this.questionTimer) {
       clearTimeout(this.questionTimer);

@@ -23,9 +23,7 @@ export class RoomManager {
   /** User ID → Socket ID (for reconnection) */
   private userToSocket: Map<string, string> = new Map();
 
-  /**
-   * Add a user to a quiz room.
-   */
+
   joinRoom(socket: Socket, quizId: string, userId: string, username: string): void {
     socket.join(quizId);
 
@@ -47,10 +45,7 @@ export class RoomManager {
     });
   }
 
-  /**
-   * Remove a user when they disconnect.
-   * Returns the connection info for cleanup.
-   */
+  /** Returns the connection info for cleanup if the socket was tracked. */
   leaveRoom(socketId: string): UserConnection | undefined {
     const connection = this.connections.get(socketId);
     if (connection) {
@@ -66,30 +61,22 @@ export class RoomManager {
     return connection;
   }
 
-  /**
-   * Get the connection info for a socket.
-   */
+
   getConnection(socketId: string): UserConnection | undefined {
     return this.connections.get(socketId);
   }
 
-  /**
-   * Get the socket ID for a user (for reconnection).
-   */
+
   getSocketIdForUser(userId: string): string | undefined {
     return this.userToSocket.get(userId);
   }
 
-  /**
-   * Get the room name (quiz ID) for a socket.
-   */
+
   getQuizIdForSocket(socketId: string): string | undefined {
     return this.connections.get(socketId)?.quizId;
   }
 
-  /**
-   * Get all active connections count.
-   */
+
   getActiveConnectionCount(): number {
     return this.connections.size;
   }

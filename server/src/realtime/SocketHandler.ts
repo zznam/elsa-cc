@@ -12,17 +12,20 @@ import type { ILeaderboardStore } from '../leaderboard/LeaderboardService';
 import { QuizManager } from '../quiz/QuizManager';
 import { RoomManager } from './RoomManager';
 import { createLogger } from '../utils/logger';
-import { AppError } from '../utils/errors';
+import { AppError, ErrorCode } from '../utils/errors';
 import { config } from '../config';
 import { listQuizzes } from '../data/mockQuizzes';
+import { joinQuizSchema, submitAnswerSchema, startQuizSchema, getLeaderboardSchema } from '../middleware/validation';
+import { RateLimiter } from '../middleware/rateLimiter';
+import type { QuizSession } from '../quiz/QuizSession';
 
 const logger = createLogger('SocketHandler');
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents>;
 
-/** Rate limiter: track last answer time per user */
-const answerTimestamps: Map<string, number> = new Map();
+/** Per-user rate limiter for answer submissions */
+const answerRateLimiter = new RateLimiter(config.maxAnswersPerSecond, 1000);
 
 export class SocketHandler {
   private io: TypedServer;
@@ -89,35 +92,23 @@ export class SocketHandler {
     callback: (response: any) => void,
   ): void {
     try {
-      const { quizId, username } = data;
-
-      if (!quizId || !username || username.trim().length === 0) {
-        callback({ success: false, error: 'Quiz ID and username are required' });
-        return;
-      }
-
-      if (username.trim().length > 20) {
-        callback({ success: false, error: 'Username must be 20 characters or less' });
-        return;
-      }
+      const validated = joinQuizSchema.parse(data);
+      const { quizId, username } = validated;
 
       const session = this.quizManager.getOrCreateSession(quizId);
-      const participant = session.addParticipant(username.trim());
+      const participant = session.addParticipant(username);
 
-      // Join the Socket.IO room
       this.roomManager.joinRoom(socket, quizId, participant.userId, participant.username);
 
-      // Wire up session events for this quiz (idempotent — only on first participant)
+      // Only wire session events once per session
       this.wireSessionEvents(quizId, session);
 
-      // Notify other participants
       socket.to(quizId).emit('participant_joined', {
         userId: participant.userId,
         username: participant.username,
         participantCount: session.participantCount,
       });
 
-      // Get participant list for the response
       const participants = session.getParticipants().map((p) => ({
         userId: p.userId,
         username: p.username,
@@ -140,7 +131,7 @@ export class SocketHandler {
         currentQuestion: session.getCurrentQuestionPayload(),
       });
     } catch (err) {
-      const error = err instanceof AppError ? err : new AppError('INTERNAL_ERROR' as any, 'Internal server error');
+      const error = err instanceof AppError ? err : new AppError(ErrorCode.INTERNAL_ERROR, 'Internal server error');
       logger.error('Join quiz failed', { error: error.message, quizId: data.quizId });
       callback({ success: false, error: error.message, errorCode: error.code });
     }
@@ -152,41 +143,37 @@ export class SocketHandler {
     callback: (response: any) => void,
   ): void {
     try {
+      const validated = submitAnswerSchema.parse(data);
+
       const connection = this.roomManager.getConnection(socket.id);
       if (!connection) {
         callback({ success: false, error: 'Not connected to a quiz' });
         return;
       }
 
-      // Rate limiting
-      const now = Date.now();
-      const lastAnswer = answerTimestamps.get(connection.userId);
-      const minInterval = 1000 / config.maxAnswersPerSecond;
-      if (lastAnswer && now - lastAnswer < minInterval) {
+      if (!answerRateLimiter.isAllowed(connection.userId)) {
         callback({ success: false, error: 'Too fast! Please wait before submitting again.', errorCode: 'RATE_LIMITED' });
         return;
       }
-      answerTimestamps.set(connection.userId, now);
 
-      const session = this.quizManager.getSession(data.quizId);
+      const session = this.quizManager.getSession(validated.quizId);
       if (!session) {
         callback({ success: false, error: 'Quiz session not found' });
         return;
       }
 
       const result = session.submitAnswer(connection.userId, {
-        quizId: data.quizId,
-        questionId: data.questionId,
-        selectedOptionIndex: data.selectedOptionIndex,
-        clientTimestamp: data.clientTimestamp,
+        quizId: validated.quizId,
+        questionId: validated.questionId,
+        selectedOptionIndex: validated.selectedOptionIndex,
+        clientTimestamp: validated.clientTimestamp,
       });
 
-      // Update leaderboard
       if (result.pointsEarned > 0) {
         this.leaderboard
-          .updateScore(data.quizId, connection.userId, connection.username, result.pointsEarned)
+          .updateScore(validated.quizId, connection.userId, connection.username, result.pointsEarned)
           .then(() => {
-            this.scheduleLeaderboardBroadcast(data.quizId);
+            this.scheduleLeaderboardBroadcast(validated.quizId);
           })
           .catch((err) => {
             logger.error('Failed to update leaderboard', { error: (err as Error).message });
@@ -195,7 +182,7 @@ export class SocketHandler {
 
       callback({ success: true, result });
     } catch (err) {
-      const error = err instanceof AppError ? err : new AppError('INTERNAL_ERROR' as any, 'Internal server error');
+      const error = err instanceof AppError ? err : new AppError(ErrorCode.INTERNAL_ERROR, 'Internal server error');
       logger.error('Submit answer failed', { error: error.message });
       callback({ success: false, error: error.message, errorCode: error.code });
     }
@@ -207,7 +194,9 @@ export class SocketHandler {
     callback: (response: any) => void,
   ): void {
     try {
-      const session = this.quizManager.getSession(data.quizId);
+      const validated = startQuizSchema.parse(data);
+
+      const session = this.quizManager.getSession(validated.quizId);
       if (!session) {
         callback({ success: false, error: 'Quiz session not found' });
         return;
@@ -216,7 +205,7 @@ export class SocketHandler {
       session.start();
       callback({ success: true });
     } catch (err) {
-      const error = err instanceof AppError ? err : new AppError('INTERNAL_ERROR' as any, 'Internal server error');
+      const error = err instanceof AppError ? err : new AppError(ErrorCode.INTERNAL_ERROR, 'Internal server error');
       logger.error('Start quiz failed', { error: error.message });
       callback({ success: false, error: error.message, errorCode: error.code });
     }
@@ -228,7 +217,7 @@ export class SocketHandler {
     callback: (response: any) => void,
   ): void {
     this.leaderboard
-      .getLeaderboard(data.quizId)
+      .getLeaderboard(getLeaderboardSchema.parse(data).quizId)
       .then((leaderboard) => {
         callback({ success: true, leaderboard });
       })
@@ -246,7 +235,7 @@ export class SocketHandler {
    */
   private wiredSessions: Set<string> = new Set();
 
-  private wireSessionEvents(quizId: string, session: any): void {
+  private wireSessionEvents(quizId: string, session: QuizSession): void {
     if (this.wiredSessions.has(quizId)) return;
     this.wiredSessions.add(quizId);
 
@@ -288,18 +277,10 @@ export class SocketHandler {
     });
   }
 
-  // ─── Leaderboard Broadcasting ─────────────────────────────────────────────
-
-  /**
-   * Throttled leaderboard broadcast to avoid flooding clients.
-   * Broadcasts at most once per configured interval.
-   */
+  /** Throttled broadcast — at most once per configured interval to avoid flooding clients. */
   private scheduleLeaderboardBroadcast(quizId: string): void {
     this.pendingLeaderboardUpdates.add(quizId);
-
-    if (this.leaderboardBroadcastTimers.has(quizId)) {
-      return; // Already scheduled
-    }
+    if (this.leaderboardBroadcastTimers.has(quizId)) return;
 
     const timer = setTimeout(async () => {
       this.leaderboardBroadcastTimers.delete(quizId);

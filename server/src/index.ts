@@ -30,7 +30,6 @@ async function main(): Promise<void> {
   const app = express();
   const httpServer = createServer(app);
 
-  // Serve static client files
   const clientPath = path.join(__dirname, '../../client');
   app.use(express.static(clientPath));
 
@@ -67,7 +66,7 @@ async function main(): Promise<void> {
     },
     pingInterval: 25000,
     pingTimeout: 60000,
-    // Enable binary transport for better performance
+    // Prefer WebSocket but fall back to polling for restrictive networks
     transports: ['websocket', 'polling'],
   });
 
@@ -95,28 +94,23 @@ async function main(): Promise<void> {
     logger.info(`🏥 Health check: http://localhost:${config.port}/health`);
   });
 
-  // ─── Graceful Shutdown ────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
     logger.info(`Received ${signal} — shutting down gracefully`);
 
-    // Close Socket.IO connections
     io.close();
 
-    // Clean up quiz manager
     quizManager.destroy();
 
-    // Close Redis connection if applicable
     if (leaderboard instanceof RedisLeaderboard) {
       await (leaderboard as RedisLeaderboard).disconnect();
     }
 
-    // Close HTTP server
     httpServer.close(() => {
       logger.info('Server shut down successfully');
       process.exit(0);
     });
 
-    // Force exit after 10 seconds
+    // Prevent hanging if close callbacks stall
     setTimeout(() => {
       logger.error('Forced shutdown after timeout');
       process.exit(1);

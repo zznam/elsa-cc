@@ -24,16 +24,13 @@ export class RateLimiter {
     this.maxRequests = maxRequests;
     this.windowMs = windowMs;
 
-    // Periodic cleanup of old entries
+    // Prevent unbounded memory growth from stale entries
     setInterval(() => {
       this.cleanup();
     }, 60000);
   }
 
-  /**
-   * Check if a request from the given key should be rate limited.
-   * @returns true if the request is allowed, false if rate limited
-   */
+  /** Check if a request from the given key is within the rate limit. */
   isAllowed(key: string): boolean {
     const now = Date.now();
     let entry = this.entries.get(key);
@@ -43,7 +40,6 @@ export class RateLimiter {
       this.entries.set(key, entry);
     }
 
-    // Remove timestamps outside the window
     entry.timestamps = entry.timestamps.filter((t) => now - t < this.windowMs);
 
     if (entry.timestamps.length >= this.maxRequests) {
@@ -55,9 +51,7 @@ export class RateLimiter {
     return true;
   }
 
-  /**
-   * Remove stale entries to prevent memory leaks.
-   */
+
   private cleanup(): void {
     const now = Date.now();
     for (const [key, entry] of this.entries.entries()) {

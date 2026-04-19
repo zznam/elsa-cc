@@ -104,10 +104,10 @@ export class QuizSession extends EventEmitter {
 
   // ─── Participant Management ─────────────────────────────────────────
 
-  /** Add a participant. Rejects if quiz is finished, full, or username is taken. */
+  /** Add a participant. Rejects if quiz has already started, full, or username is taken. */
   addParticipant(username: string): Participant {
-    if (this._state === State.FINISHED) {
-      throw new AppError(ErrorCode.QUIZ_ALREADY_FINISHED, `Cannot join quiz '${this.quiz.id}': session has already ended`);
+    if (this._state !== State.WAITING) {
+      throw new AppError(ErrorCode.QUIZ_ALREADY_STARTED, `Cannot join quiz '${this.quiz.id}': session is already in ${this._state} state`);
     }
 
     if (this.participants.size >= this.maxParticipants) {

@@ -43,6 +43,11 @@ describe('QuizSession', () => {
       small.destroy();
     });
 
+    it('should reject join attempts after quiz has started', () => {
+      session.start();
+      expect(() => session.addParticipant('LateJoiner')).toThrow(/has already ended|already in ACTIVE/i);
+    });
+
     it('should handle disconnect/reconnect', () => {
       const p = session.addParticipant('Alice');
       session.disconnectParticipant(p.userId);
@@ -50,6 +55,24 @@ describe('QuizSession', () => {
 
       session.reconnectParticipant(p.userId);
       expect(session.getParticipant(p.userId)?.isConnected).toBe(true);
+    });
+
+    it('should maintain score and streak continuity after reconnect', () => {
+      const p = session.addParticipant('Alice');
+      session.start();
+      
+      // Alice answers correctly
+      const result = session.submitAnswer(p.userId, { quizId: 'test-quiz', questionId: 'q1', selectedOptionIndex: 0, clientTimestamp: Date.now() });
+      
+      // Disconnect and reconnect
+      session.disconnectParticipant(p.userId);
+      session.reconnectParticipant(p.userId);
+      
+      // Verify state is preserved
+      const reconnectedP = session.getParticipant(p.userId)!;
+      expect(reconnectedP.totalScore).toBe(result.totalScore);
+      expect(reconnectedP.streak).toBe(result.currentStreak);
+      expect(reconnectedP.answeredQuestions.has('q1')).toBe(true);
     });
   });
 
@@ -111,6 +134,19 @@ describe('QuizSession', () => {
       session.addParticipant('Alice');
       session.start();
       expect(() => session.submitAnswer('unknown', { quizId: 'test-quiz', questionId: 'q1', selectedOptionIndex: 0, clientTimestamp: Date.now() })).toThrow();
+    });
+
+    it('should reject out-of-sync or stale question submissions', () => {
+      const p = session.addParticipant('Alice');
+      session.start(); // Starts q1
+
+      // Submitting answer for q2 when q1 is active
+      expect(() => session.submitAnswer(p.userId, { 
+        quizId: 'test-quiz', 
+        questionId: 'q2', 
+        selectedOptionIndex: 0, 
+        clientTimestamp: Date.now() 
+      })).toThrow(/not the current question/i);
     });
   });
 });

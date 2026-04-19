@@ -55,6 +55,18 @@ describe('ScoringEngine', () => {
       expect(result.timeBonus).toBe(0);
     });
 
+    it('should handle responses submitted slightly after the time limit (lag)', () => {
+      const result = engine.calculateScore(makeQuestion(), 1, 15005, 0, 0);
+      expect(result.timeBonus).toBe(0); // Should clamp to 0, not negative
+      expect(result.pointsEarned).toBeGreaterThanOrEqual(result.basePoints);
+    });
+
+    it('should handle instant responses at exactly 0ms', () => {
+      const result = engine.calculateScore(makeQuestion(), 1, 0, 0, 0);
+      expect(result.timeBonus).toBe(100); // 50% of 200 base
+      expect(result.pointsEarned).toBe(320); // 200 (base) + 100 (time) + 20 (streak 1)
+    });
+
     it('should increase streak on correct answer', () => {
       const result = engine.calculateScore(makeQuestion(), 1, 5000, 2, 0);
       expect(result.currentStreak).toBe(3);

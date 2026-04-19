@@ -41,6 +41,21 @@ describe('RateLimiter', () => {
     expect(limiter.isAllowed('user-2')).toBe(false);
   });
 
+  it('should handle a rapid flood of requests accurately', () => {
+    const limiter = new RateLimiter(5, 1000);
+    let allowedCount = 0;
+    
+    // Simulate 50 requests in a tight loop
+    for (let i = 0; i < 50; i++) {
+      if (limiter.isAllowed('flooder')) {
+        allowedCount++;
+      }
+    }
+    
+    // Only the first 5 should be allowed
+    expect(allowedCount).toBe(5);
+  });
+
   it('should handle the default configuration', () => {
     const limiter = new RateLimiter();
     expect(limiter.isAllowed('user-1')).toBe(true);

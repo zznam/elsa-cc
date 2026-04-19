@@ -21,6 +21,7 @@ Welcome to the Real-Time Quiz coding challenge! Your task is to create a technic
 ## Challenge Requirements
 
 ### Collaborating with AI: A Core Requirement
+
 Modern software engineering requires effective collaboration with AI. Therefore, **this challenge requires using Generative AI tools (like GitHub Copilot, Gemini, Claude, Cursor AI, etc.)**. Treat them as essential partners for tasks such as brainstorming designs, accelerating coding, refactoring, generating documentation, creating test cases, or debugging complex issues.
 
 This challenge assesses your core technical skills and ability to strategically leverage AI to enhance productivity and solution quality. **You must demonstrate and document your AI usage** throughout the design and implementation process as specified below; this is a key evaluation criterion. Show us how you integrate these powerful tools into your workflow responsibly and effectively.

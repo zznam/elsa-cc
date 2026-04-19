@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Real-time vocabulary quiz with live leaderboard — test your English skills and compete with others!">
+  <title>Vocab Quiz — Real-Time English Vocabulary Challenge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- ─── Join Screen ─────────────────────────────────────── -->
+    <section id="join-screen" class="screen active">
+      <div class="join-container">
+        <div class="logo-area">
+          <div class="logo-icon">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <rect width="48" height="48" rx="12" fill="url(#logo-gradient)"/>
+              <path d="M14 24L20 30L34 16" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+              <defs>
+                <linearGradient id="logo-gradient" x1="0" y1="0" x2="48" y2="48">
+                  <stop stop-color="#6C63FF"/>
+                  <stop offset="1" stop-color="#FF6584"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <h1>Vocab Quiz</h1>
+          <p class="subtitle">Real-Time English Vocabulary Challenge</p>
+        </div>
+
+        <div class="join-form glass-card">
+          <div class="form-group">
+            <label for="quiz-select">Select Quiz</label>
+            <select id="quiz-select" class="input-field">
+              <option value="">Loading quizzes...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="username-input">Your Name</label>
+            <input 
+              type="text" 
+              id="username-input" 
+              class="input-field" 
+              placeholder="Enter your name..."
+              maxlength="20"
+              autocomplete="off"
+            >
+          </div>
+          <button id="join-btn" class="btn btn-primary" disabled>
+            <span class="btn-text">Join Quiz</span>
+            <span class="btn-loader hidden"></span>
+          </button>
+          <p id="join-error" class="error-text hidden"></p>
+        </div>
+
+        <div class="join-info">
+          <div class="info-card glass-card">
+            <span class="info-icon">⚡</span>
+            <span>Real-time scoring</span>
+          </div>
+          <div class="info-card glass-card">
+            <span class="info-icon">🏆</span>
+            <span>Live leaderboard</span>
+          </div>
+          <div class="info-card glass-card">
+            <span class="info-icon">🎯</span>
+            <span>Streak bonuses</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Lobby Screen ─────────────────────────────────────── -->
+    <section id="lobby-screen" class="screen">
+      <div class="lobby-container">
+        <div class="lobby-header glass-card">
+          <h2 id="lobby-quiz-title">Waiting Room</h2>
+          <p class="lobby-status">Waiting for the host to start...</p>
+        </div>
+
+        <div class="participants-grid" id="participants-list">
+          <!-- Dynamically populated -->
+        </div>
+
+        <button id="start-quiz-btn" class="btn btn-primary btn-lg">
+          <span>🚀 Start Quiz</span>
+        </button>
+
+        <p class="lobby-hint">Share quiz ID with friends to invite them!</p>
+      </div>
+    </section>
+
+    <!-- ─── Quiz Screen ──────────────────────────────────────── -->
+    <section id="quiz-screen" class="screen">
+      <div class="quiz-layout">
+        <!-- Main quiz area -->
+        <div class="quiz-main">
+          <!-- Progress bar -->
+          <div class="quiz-progress">
+            <div class="progress-bar">
+              <div class="progress-fill" id="question-progress"></div>
+            </div>
+            <span class="progress-text" id="question-counter">1 / 10</span>
+          </div>
+
+          <!-- Question card -->
+          <div class="question-card glass-card" id="question-card">
+            <div class="question-header">
+              <span class="difficulty-badge" id="difficulty-badge">medium</span>
+              <div class="timer-display" id="timer-display">
+                <svg class="timer-ring" viewBox="0 0 36 36">
+                  <circle class="timer-bg" cx="18" cy="18" r="16" fill="none" stroke-width="3"/>
+                  <circle class="timer-progress" id="timer-progress" cx="18" cy="18" r="16" fill="none" stroke-width="3"/>
+                </svg>
+                <span class="timer-text" id="timer-text">15</span>
+              </div>
+            </div>
+
+            <div class="question-content">
+              <h2 class="question-word" id="question-word">Ubiquitous</h2>
+              <p class="question-prompt" id="question-prompt">What does "ubiquitous" mean?</p>
+            </div>
+
+            <div class="options-grid" id="options-grid">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Score feedback (appears after answering) -->
+          <div class="score-feedback hidden" id="score-feedback">
+            <div class="feedback-content" id="feedback-content">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Leaderboard sidebar -->
+        <aside class="leaderboard-panel glass-card">
+          <h3 class="leaderboard-title">
+            <span class="trophy-icon">🏆</span>
+            Leaderboard
+          </h3>
+          <div class="leaderboard-list" id="leaderboard-list">
+            <div class="leaderboard-empty">Waiting for scores...</div>
+          </div>
+          <div class="my-score-bar" id="my-score-bar">
+            <span class="my-rank" id="my-rank">—</span>
+            <span class="my-name" id="my-name">You</span>
+            <span class="my-score" id="my-score">0</span>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ─── Results Screen ───────────────────────────────────── -->
+    <section id="results-screen" class="screen">
+      <div class="results-container">
+        <div class="results-header">
+          <h2>🎉 Quiz Complete!</h2>
+          <p class="results-duration" id="results-duration">Duration: 0:00</p>
+        </div>
+
+        <div class="podium" id="podium">
+          <!-- Top 3 podium - dynamically populated -->
+        </div>
+
+        <div class="final-leaderboard glass-card" id="final-leaderboard">
+          <!-- Full leaderboard - dynamically populated -->
+        </div>
+
+        <div class="results-actions">
+          <button id="play-again-btn" class="btn btn-primary">
+            Play Again
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Connection status indicator -->
+  <div class="connection-status" id="connection-status">
+    <span class="status-dot"></span>
+    <span class="status-text">Connected</span>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

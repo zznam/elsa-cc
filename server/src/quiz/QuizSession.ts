@@ -53,10 +53,13 @@ export class QuizSession extends EventEmitter {
   private participants: Map<string, Participant>;
   private currentQuestionIndex: number;
   private questionTimer: NodeJS.Timeout | null;
+  private transitionTimers: Set<NodeJS.Timeout>;
   private questionStartTime: number;
+  private acceptingAnswers: boolean;
   private scoringEngine: ScoringEngine;
   private startedAt: number | null;
   private readonly maxParticipants: number;
+  private _hostUserId: string | null;
 
   constructor(quiz: Quiz, maxParticipants: number = 100) {
     super();
@@ -66,10 +69,13 @@ export class QuizSession extends EventEmitter {
     this.participants = new Map();
     this.currentQuestionIndex = -1;
     this.questionTimer = null;
+    this.transitionTimers = new Set();
     this.questionStartTime = 0;
+    this.acceptingAnswers = false;
     this.scoringEngine = new ScoringEngine();
     this.startedAt = null;
     this.maxParticipants = maxParticipants;
+    this._hostUserId = null;
   }
 
   // ─── Getters ──────────────────────────────────────────────────────────────
@@ -98,6 +104,10 @@ export class QuizSession extends EventEmitter {
     return Math.round((Date.now() - this.startedAt) / 1000);
   }
 
+  get hostUserId(): string | null {
+    return this._hostUserId;
+  }
+
   // ─── Participant Management ─────────────────────────────────────────
 
   /** Add a participant. Rejects if quiz has already started, full, or username is taken. */
@@ -122,12 +132,17 @@ export class QuizSession extends EventEmitter {
     const participant: Participant = {
       userId: uuidv4(),
       username,
+      isHost: this.participants.size === 0,
       joinedAt: Date.now(),
       answeredQuestions: new Set(),
       totalScore: 0,
       streak: 0,
       isConnected: true,
     };
+
+    if (participant.isHost) {
+      this._hostUserId = participant.userId;
+    }
 
     this.participants.set(participant.userId, participant);
 
@@ -195,6 +210,8 @@ export class QuizSession extends EventEmitter {
   }
 
   private advanceToNextQuestion(): void {
+    this.clearTransitionTimers();
+
     if (this.questionTimer) {
       clearTimeout(this.questionTimer);
       this.questionTimer = null;
@@ -209,6 +226,7 @@ export class QuizSession extends EventEmitter {
 
     const question = this.quiz.questions[this.currentQuestionIndex];
     this.questionStartTime = Date.now();
+    this.acceptingAnswers = true;
 
     const payload: QuestionPayload = {
       questionId: question.id,
@@ -245,18 +263,22 @@ export class QuizSession extends EventEmitter {
 
     this.emit('questionTimeout', question.id, question.correctOptionIndex);
 
+    this.acceptingAnswers = false;
+
     // Brief pause before next question to let clients show the correct answer
-    setTimeout(() => {
-      this.advanceToNextQuestion();
-    }, 3000);
+    this.scheduleQuestionAdvance(3000);
   }
 
   private endQuiz(): void {
+    if (this._state === State.FINISHED) return;
+
     if (this.questionTimer) {
       clearTimeout(this.questionTimer);
       this.questionTimer = null;
     }
 
+    this.clearTransitionTimers();
+    this.acceptingAnswers = false;
     this._state = State.FINISHED;
 
     logger.info('Quiz ended', {
@@ -288,6 +310,10 @@ export class QuizSession extends EventEmitter {
         ErrorCode.INVALID_ANSWER,
         `Question '${submission.questionId}' is not the current question for quiz '${this.quiz.id}'`,
       );
+    }
+
+    if (!this.acceptingAnswers) {
+      throw new AppError(ErrorCode.QUESTION_TIMEOUT, `Question '${question.id}' is no longer accepting answers`);
     }
 
     if (participant.answeredQuestions.has(question.id)) {
@@ -351,10 +377,27 @@ export class QuizSession extends EventEmitter {
         clearTimeout(this.questionTimer);
         this.questionTimer = null;
       }
-      setTimeout(() => {
-        this.advanceToNextQuestion();
-      }, 2000);
+      this.acceptingAnswers = false;
+      this.scheduleQuestionAdvance(2000);
     }
+  }
+
+  private scheduleQuestionAdvance(delayMs: number): void {
+    const timer = setTimeout(() => {
+      this.transitionTimers.delete(timer);
+      if (this._state === State.ACTIVE) {
+        this.advanceToNextQuestion();
+      }
+    }, delayMs);
+
+    this.transitionTimers.add(timer);
+  }
+
+  private clearTransitionTimers(): void {
+    for (const timer of this.transitionTimers) {
+      clearTimeout(timer);
+    }
+    this.transitionTimers.clear();
   }
 
   /** Build a client-safe payload — excludes correctOptionIndex to prevent cheating. */
@@ -379,6 +422,8 @@ export class QuizSession extends EventEmitter {
       clearTimeout(this.questionTimer);
       this.questionTimer = null;
     }
+    this.clearTransitionTimers();
+    this.acceptingAnswers = false;
     this.removeAllListeners();
 
     logger.info('Quiz session destroyed', { sessionId: this.sessionId });

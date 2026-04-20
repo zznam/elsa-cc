@@ -10,10 +10,12 @@
   const state = {
     socket: null,
     userId: null,
+    isHost: false,
     username: null,
     quizId: null,
     currentQuestionId: null,
     hasAnswered: false,
+    wasDisconnected: false,
     timerInterval: null,
     timeLeft: 0,
     totalScore: 0,
@@ -42,9 +44,14 @@
     state.socket.on('connect', () => {
       $('connection-status').classList.remove('disconnected');
       $('connection-status').querySelector('.status-text').textContent = 'Connected';
+
+      if (state.wasDisconnected && state.userId && state.username && state.quizId) {
+        reconnectQuiz();
+      }
     });
 
     state.socket.on('disconnect', () => {
+      state.wasDisconnected = true;
       $('connection-status').classList.add('disconnected');
       $('connection-status').querySelector('.status-text').textContent = 'Disconnected';
     });
@@ -119,18 +126,48 @@
       }
 
       state.userId = response.userId;
+      state.isHost = Boolean(response.isHost);
       state.username = username;
       state.quizId = quizId;
 
       $('lobby-quiz-title').textContent = response.quizTitle;
       $('participants-list').innerHTML = '';
       (response.participants || []).forEach((p) => addParticipantChip(p.userId, p.username));
+      updateHostControls();
 
       if (response.state === 'ACTIVE' && response.currentQuestion) {
         showScreen('quiz');
         showQuestion(response.currentQuestion);
       } else {
         showScreen('lobby');
+      }
+    });
+  }
+
+  function reconnectQuiz() {
+    state.socket.emit('join_quiz', {
+      quizId: state.quizId,
+      username: state.username,
+      userId: state.userId,
+    }, (response) => {
+      if (!response.success) {
+        state.wasDisconnected = false;
+        showScreen('join');
+        showError(response.error || 'Could not restore quiz connection');
+        return;
+      }
+
+      state.wasDisconnected = false;
+      state.userId = response.userId;
+      state.isHost = Boolean(response.isHost);
+      updateHostControls();
+
+      $('participants-list').innerHTML = '';
+      (response.participants || []).forEach((p) => addParticipantChip(p.userId, p.username));
+
+      if (response.state === 'ACTIVE' && response.currentQuestion) {
+        showScreen('quiz');
+        showQuestion(response.currentQuestion);
       }
     });
   }
@@ -155,6 +192,13 @@
     state.socket.emit('start_quiz', { quizId: state.quizId }, (response) => {
       if (!response.success) alert(response.error || 'Failed to start quiz');
     });
+  }
+
+  function updateHostControls() {
+    $('start-quiz-btn').hidden = !state.isHost;
+    $('lobby-screen').querySelector('.lobby-status').textContent = state.isHost
+      ? 'Ready when you are.'
+      : 'Waiting for the host to start...';
   }
 
   // ─── Question Display ─────────────────────────────────────

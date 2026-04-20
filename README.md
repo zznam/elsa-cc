@@ -83,3 +83,48 @@ Candidates are required to submit the following:
          - **Most importantly**, walk us through your process for ensuring the quality, correctness, and security of AI-assisted output. How did you test and verify? (This part is critical!)
       - **Demo**: Show your code/tests in action.
       - **Conclusion**: Learnings, challenges, future ideas.
+
+---
+
+## Candidate Submission Notes
+
+This repository includes a working implementation of the real-time server component plus a lightweight browser demo client.
+
+### Delivered Artifacts
+
+- System design: `docs/system-design.md`
+- AI collaboration notes: `docs/ai-collaboration.md`
+- Server implementation: `server/src`
+- Browser demo client: `client`
+- Unit tests: `server/tests/unit`
+
+### Run Locally
+
+```bash
+cd server
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000` in two browser windows, join the same quiz with different names, and start the quiz from the first joined window. The first participant is treated as the quiz host.
+
+By default the server uses the in-memory leaderboard. To use Redis-backed leaderboards:
+
+```bash
+cd server
+REDIS_URL=redis://localhost:6379 npm run dev
+```
+
+### Verify
+
+```bash
+cd server
+npm test
+npm run type-check
+npm run build
+npm run lint
+```
+
+### Implementation Scope
+
+The demo implements real-time quiz participation, server-side scoring, live leaderboard updates, host-controlled quiz start, and reconnect restoration while an in-memory quiz session is still alive. Redis is implemented for leaderboard storage; full multi-node Socket.IO broadcasting and persistent quiz/session storage are described as production extensions in the design document.

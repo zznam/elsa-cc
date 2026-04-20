@@ -19,6 +19,16 @@ describe('InMemoryLeaderboard', () => {
     expect(entries[0].rank).toBe(1);
   });
 
+  it('should include participants initialized with zero points', async () => {
+    await lb.updateScore('quiz1', 'u1', 'Alice', 0);
+    await lb.updateScore('quiz1', 'u2', 'Bob', 100);
+
+    const entries = await lb.getTopN('quiz1');
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e) => e.username)).toContain('Alice');
+    expect(entries.find((e) => e.username === 'Alice')?.score).toBe(0);
+  });
+
   it('should increment scores', async () => {
     await lb.updateScore('quiz1', 'u1', 'Alice', 100);
     await lb.updateScore('quiz1', 'u1', 'Alice', 50);

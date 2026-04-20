@@ -31,8 +31,9 @@ export class QuizManager {
 
   /**
    * Create a new quiz session for the given quiz ID.
-   * If a session already exists and is in WAITING state, return it.
-   * If it's ACTIVE, allow joining mid-game.
+   * If a session already exists and is still live, return it.
+   * New participants can join only while the session is WAITING.
+   * Disconnected participants can reconnect while the session is ACTIVE.
    * If it's FINISHED, create a new one.
    */
   getOrCreateSession(quizId: string): QuizSession {

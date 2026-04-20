@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QuizSession } from '../../src/quiz/QuizSession';
 import type { Quiz } from '../../src/quiz/types';
 
@@ -37,6 +37,7 @@ describe('QuizSession', () => {
 
   afterEach(() => {
     session.destroy();
+    vi.useRealTimers();
   });
 
   describe('participant management', () => {
@@ -45,6 +46,15 @@ describe('QuizSession', () => {
       expect(p.username).toBe('Alice');
       expect(p.userId).toBeTruthy();
       expect(session.participantCount).toBe(1);
+    });
+
+    it('should make the first participant the host', () => {
+      const alice = session.addParticipant('Alice');
+      const bob = session.addParticipant('Bob');
+
+      expect(alice.isHost).toBe(true);
+      expect(bob.isHost).toBe(false);
+      expect(session.hostUserId).toBe(alice.userId);
     });
 
     it('should reject duplicate usernames', () => {
@@ -134,6 +144,24 @@ describe('QuizSession', () => {
       expect(questionData).toBeTruthy();
       expect(questionData.questionId).toBe('q1');
       expect(questionData.questionNumber).toBe(1);
+    });
+
+    it('should clear delayed question transitions when destroyed', () => {
+      vi.useFakeTimers();
+      const questionIds: string[] = [];
+
+      session.on('questionStarted', (data) => {
+        questionIds.push(data.questionId);
+      });
+
+      session.addParticipant('Alice');
+      session.start();
+
+      (session as any).handleQuestionTimeout();
+      session.destroy();
+      vi.advanceTimersByTime(3000);
+
+      expect(questionIds).toEqual(['q1']);
     });
   });
 

@@ -15,6 +15,15 @@ describe('Zod validation schemas', () => {
       expect(result.username).toBe('Alice');
     });
 
+    it('should accept a previous user ID for reconnects', () => {
+      const result = joinQuizSchema.parse({
+        quizId: 'vocab-101',
+        username: 'Alice',
+        userId: '64c1daf8-37e0-4dc5-a957-e88421e2d320',
+      });
+      expect(result.userId).toBe('64c1daf8-37e0-4dc5-a957-e88421e2d320');
+    });
+
     it('should reject empty quizId', () => {
       expect(() => joinQuizSchema.parse({ quizId: '', username: 'Alice' })).toThrow();
     });

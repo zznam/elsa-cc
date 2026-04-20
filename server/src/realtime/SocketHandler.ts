@@ -7,13 +7,14 @@
  */
 
 import type { Server, Socket } from 'socket.io';
+import { ZodError } from 'zod';
 import { config } from '../config';
 import type { ILeaderboardStore } from '../leaderboard/LeaderboardService';
 import { RateLimiter } from '../middleware/rateLimiter';
 import { getLeaderboardSchema, joinQuizSchema, startQuizSchema, submitAnswerSchema } from '../middleware/validation';
 import type { QuizManager } from '../quiz/QuizManager';
 import type { QuizSession } from '../quiz/QuizSession';
-import type { AnswerSubmission, QuestionPayload } from '../quiz/types';
+import type { AnswerSubmission, Participant, QuestionPayload } from '../quiz/types';
 import { AppError, ErrorCode } from '../utils/errors';
 import { createLogger } from '../utils/logger';
 import type {
@@ -71,11 +72,11 @@ export class SocketHandler {
 
   private registerHandlers(socket: TypedSocket): void {
     socket.on('join_quiz', (data, callback) => {
-      this.handleJoinQuiz(socket, data, callback);
+      void this.handleJoinQuiz(socket, data, callback);
     });
 
     socket.on('submit_answer', (data, callback) => {
-      this.handleSubmitAnswer(socket, data, callback);
+      void this.handleSubmitAnswer(socket, data, callback);
     });
 
     socket.on('start_quiz', (data, callback) => {
@@ -89,22 +90,24 @@ export class SocketHandler {
 
   // ─── Event Handlers ──────────────────────────────────────────────────────
 
-  private handleJoinQuiz(
+  private async handleJoinQuiz(
     socket: TypedSocket,
     data: JoinQuizPayload,
     callback: (response: JoinQuizResponse) => void,
-  ): void {
+  ): Promise<void> {
     try {
       const validated = joinQuizSchema.parse(data);
-      const { quizId, username } = validated;
+      const { quizId, username, userId } = validated;
 
       const session = this.quizManager.getOrCreateSession(quizId);
-      const participant = session.addParticipant(username);
+      const participant = this.joinOrReconnectParticipant(session, username, userId);
 
       this.roomManager.joinRoom(socket, quizId, participant.userId, participant.username);
 
       // Only wire session events once per session
       this.wireSessionEvents(quizId, session);
+
+      await this.ensureLeaderboardEntry(quizId, participant);
 
       socket.to(quizId).emit('participant_joined', {
         userId: participant.userId,
@@ -115,6 +118,7 @@ export class SocketHandler {
       const participants = session.getParticipants().map((p) => ({
         userId: p.userId,
         username: p.username,
+        isHost: p.isHost,
       }));
 
       logger.info('User joined quiz', {
@@ -128,29 +132,35 @@ export class SocketHandler {
       callback({
         success: true,
         userId: participant.userId,
+        isHost: participant.isHost,
         quizTitle: session.quiz.title,
         participants,
         state: session.state,
         currentQuestion: session.getCurrentQuestionPayload(),
       });
     } catch (err) {
-      const error = err instanceof AppError ? err : new AppError(ErrorCode.INTERNAL_ERROR, 'Internal server error');
-      logger.error('Join quiz failed', { error: error.message, quizId: data.quizId });
+      const error = this.toAppError(err);
+      logger.error('Join quiz failed', { error: error.message, quizId: this.getQuizIdForLog(data) });
       callback({ success: false, error: error.message, errorCode: error.code });
     }
   }
 
-  private handleSubmitAnswer(
+  private async handleSubmitAnswer(
     socket: TypedSocket,
     data: AnswerSubmission,
     callback: (response: SubmitAnswerResponse) => void,
-  ): void {
+  ): Promise<void> {
     try {
       const validated = submitAnswerSchema.parse(data);
 
       const connection = this.roomManager.getConnection(socket.id);
       if (!connection) {
         callback({ success: false, error: 'Not connected to a quiz' });
+        return;
+      }
+
+      if (connection.quizId !== validated.quizId) {
+        callback({ success: false, error: 'Socket is not joined to this quiz', errorCode: ErrorCode.USER_NOT_IN_QUIZ });
         return;
       }
 
@@ -177,26 +187,25 @@ export class SocketHandler {
       });
 
       if (result.pointsEarned > 0) {
-        this.leaderboard
-          .updateScore(validated.quizId, connection.userId, connection.username, result.pointsEarned)
-          .then(() => {
-            this.scheduleLeaderboardBroadcast(validated.quizId);
-          })
-          .catch((err) => {
-            logger.error('Failed to update leaderboard', { error: (err as Error).message });
-          });
+        await this.leaderboard.updateScore(
+          validated.quizId,
+          connection.userId,
+          connection.username,
+          result.pointsEarned,
+        );
       }
 
+      this.scheduleLeaderboardBroadcast(validated.quizId);
       callback({ success: true, result });
     } catch (err) {
-      const error = err instanceof AppError ? err : new AppError(ErrorCode.INTERNAL_ERROR, 'Internal server error');
+      const error = this.toAppError(err);
       logger.error('Submit answer failed', { error: error.message });
       callback({ success: false, error: error.message, errorCode: error.code });
     }
   }
 
   private handleStartQuiz(
-    _socket: TypedSocket,
+    socket: TypedSocket,
     data: { quizId: string },
     callback: (response: GenericResponse) => void,
   ): void {
@@ -209,10 +218,29 @@ export class SocketHandler {
         return;
       }
 
+      const connection = this.roomManager.getConnection(socket.id);
+      if (!connection || connection.quizId !== validated.quizId) {
+        callback({
+          success: false,
+          error: 'You must join this quiz before starting it',
+          errorCode: ErrorCode.USER_NOT_IN_QUIZ,
+        });
+        return;
+      }
+
+      if (session.hostUserId !== connection.userId) {
+        callback({
+          success: false,
+          error: 'Only the quiz host can start the quiz',
+          errorCode: ErrorCode.USER_NOT_IN_QUIZ,
+        });
+        return;
+      }
+
       session.start();
       callback({ success: true });
     } catch (err) {
-      const error = err instanceof AppError ? err : new AppError(ErrorCode.INTERNAL_ERROR, 'Internal server error');
+      const error = this.toAppError(err);
       logger.error('Start quiz failed', { error: error.message });
       callback({ success: false, error: error.message, errorCode: error.code });
     }
@@ -227,7 +255,7 @@ export class SocketHandler {
     try {
       quizId = getLeaderboardSchema.parse(data).quizId;
     } catch (err) {
-      const error = err instanceof AppError ? err : new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid payload');
+      const error = this.toAppError(err);
       logger.warn('Get leaderboard validation failed', { error: error.message });
       callback({ success: false, error: error.message });
       return;
@@ -292,6 +320,42 @@ export class SocketHandler {
         logger.error('Failed to send quiz ended event', { error: (err as Error).message });
       }
     });
+  }
+
+  private joinOrReconnectParticipant(session: QuizSession, username: string, userId?: string): Participant {
+    if (!userId) {
+      return session.addParticipant(username);
+    }
+
+    const participant = session.reconnectParticipant(userId);
+    if (!participant) {
+      throw new AppError(ErrorCode.USER_NOT_IN_QUIZ, 'Previous participant was not found for this quiz');
+    }
+
+    if (participant.username !== username) {
+      throw new AppError(ErrorCode.USER_NOT_IN_QUIZ, 'Previous participant does not match this username');
+    }
+
+    return participant;
+  }
+
+  private async ensureLeaderboardEntry(quizId: string, participant: Participant): Promise<void> {
+    await this.leaderboard.updateScore(quizId, participant.userId, participant.username, 0);
+    this.scheduleLeaderboardBroadcast(quizId);
+  }
+
+  private toAppError(err: unknown): AppError {
+    if (err instanceof AppError) return err;
+    if (err instanceof ZodError) {
+      return new AppError(ErrorCode.VALIDATION_ERROR, err.errors[0]?.message || 'Invalid payload');
+    }
+    return new AppError(ErrorCode.INTERNAL_ERROR, 'Internal server error');
+  }
+
+  private getQuizIdForLog(data: unknown): string | undefined {
+    if (!data || typeof data !== 'object' || !('quizId' in data)) return undefined;
+    const quizId = (data as { quizId?: unknown }).quizId;
+    return typeof quizId === 'string' ? quizId : undefined;
   }
 
   /** Throttled broadcast — at most once per configured interval to avoid flooding clients. */

@@ -37,11 +37,11 @@ This document details how Generative AI tools were used throughout the design an
 **AI output**: Complete ScoringEngine class with configurable multipliers
 
 **Verification steps**:
-1. Wrote 15 unit tests covering all scoring scenarios (correct/incorrect, all difficulties, edge cases)
+1. Wrote 17 unit tests covering all scoring scenarios (correct/incorrect, all difficulties, edge cases)
 2. Verified time bonus is proportional: instant answer gets 50% bonus, answer at time limit gets 0%
 3. Confirmed streak bonus caps at 50% to prevent runaway scores
 4. Tested edge cases: negative response times clamped to 0, response times beyond limit clamped to limit
-5. All 15 tests pass ✅
+5. All 17 tests pass ✅
 
 #### QuizSession State Machine (AI-Assisted)
 
@@ -52,11 +52,11 @@ This document details how Generative AI tools were used throughout the design an
 **AI output**: QuizSession class using Node.js EventEmitter for decoupled event broadcasting
 
 **Verification steps**:
-1. Wrote 12 unit tests covering state transitions, participant management, duplicate rejection
+1. Wrote 17 unit tests covering state transitions, participant management, duplicate rejection, host assignment, and timer cleanup
 2. Manually tested state machine transitions: confirmed WAITING→ACTIVE→FINISHED only moves forward
 3. Verified double-start throws error, duplicate usernames are rejected, full sessions reject new joins
 4. Tested answer duplicate prevention (same user, same question)
-5. All 12 tests pass ✅
+5. All 17 tests pass ✅
 
 #### Leaderboard Service (AI-Assisted)
 
@@ -67,11 +67,11 @@ This document details how Generative AI tools were used throughout the design an
 **AI output**: Interface + two implementations using sorted arrays (in-memory) and Redis sorted sets
 
 **Verification steps**:
-1. Wrote 8 unit tests for InMemoryLeaderboard: CRUD, ranking, isolation between quizzes
+1. Wrote 9 unit tests for InMemoryLeaderboard: CRUD, zero-score participants, ranking, isolation between quizzes
 2. Verified rankings are correct with multiple score updates
 3. Confirmed quiz isolation — scores from quiz1 don't appear in quiz2
 4. Verified incremental score updates accumulate correctly
-5. All 8 tests pass ✅
+5. All 9 tests pass ✅
 
 #### Socket.IO Handler (AI-Assisted)
 
@@ -118,9 +118,9 @@ This document details how Generative AI tools were used throughout the design an
 | Component | AI Contribution Level | Verification Level |
 |-----------|----------------------|-------------------|
 | Architecture design | High — AI suggested patterns | Validated against industry standards |
-| ScoringEngine | High — AI generated initial code | 15 unit tests, edge case analysis |
-| QuizSession | High — AI generated state machine | 12 unit tests, manual state transition testing |
-| LeaderboardService | High — AI generated implementations | 8 unit tests, ranking verification |
+| ScoringEngine | High — AI generated initial code | 17 unit tests, edge case analysis |
+| QuizSession | High — AI generated state machine | 17 unit tests, manual state transition testing |
+| LeaderboardService | High — AI generated implementations | 9 unit tests, ranking verification |
 | SocketHandler | High — AI generated event wiring | Manual browser testing, flow verification |
 | Client UI | High — AI generated HTML/CSS/JS | Visual testing in browser |
 | Documentation | Medium — AI drafted, human reviewed | Cross-referenced with code |

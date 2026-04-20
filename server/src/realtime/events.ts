@@ -54,6 +54,8 @@ export interface ServerToClientEvents {
 export interface JoinQuizPayload {
   quizId: string;
   username: string;
+  /** Previous participant ID used to restore a disconnected participant */
+  userId?: string;
 }
 
 export interface JoinQuizResponse {
@@ -61,8 +63,9 @@ export interface JoinQuizResponse {
   error?: string;
   errorCode?: string;
   userId?: string;
+  isHost?: boolean;
   quizTitle?: string;
-  participants?: Array<{ userId: string; username: string }>;
+  participants?: Array<{ userId: string; username: string; isHost: boolean }>;
   state?: string;
   currentQuestion?: QuestionPayload | null;
 }

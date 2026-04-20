@@ -8,6 +8,7 @@ import { z } from 'zod';
 export const joinQuizSchema = z.object({
   quizId: z.string().min(1, 'Quiz ID is required').max(50),
   username: z.string().min(1, 'Username is required').max(20, 'Username must be 20 characters or less').trim(),
+  userId: z.string().uuid().optional(),
 });
 
 export const submitAnswerSchema = z.object({

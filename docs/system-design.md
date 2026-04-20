@@ -25,13 +25,11 @@ This system enables real-time vocabulary quiz sessions where multiple users can 
 ┌────────────────────────────┼────────────────────────────────────────────┐
 │                     APPLICATION LAYER                                    │
 │  ┌─────────────────────────────────────────────────────────────┐        │
-│  │              Node.js WebSocket Server Cluster                │        │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │        │
-│  │  │  Instance 1   │  │  Instance 2   │  │  Instance N   │      │        │
-│  │  │  Socket.IO    │  │  Socket.IO    │  │  Socket.IO    │      │        │
-│  │  │  Express      │  │  Express      │  │  Express      │      │        │
-│  │  └──────┬────────┘  └──────┬────────┘  └──────┬────────┘      │        │
-│  └─────────┼──────────────────┼──────────────────┼───────────┘        │
+│  │           Node.js WebSocket Server                                   │
+│  │  Current demo: single Socket.IO + Express instance                   │
+│  │  Production path: horizontally scaled instances with                 │
+│  │  Socket.IO Redis adapter and externalized session state              │
+│  └────────────────────────┬────────────────────────────────────┘        │
 │            └──────────────────┼──────────────────┘                     │
 └───────────────────────────────┼──────────────────────────────────────┘
                                 │
@@ -87,13 +85,13 @@ The core server is composed of these modules:
 
 ### Data Layer
 
-**Redis** (hot path — real-time data):
+**Redis** (hot path — implemented for leaderboard data):
 
 - **Sorted Sets**: `ZINCRBY` for O(log N) atomic score updates, `ZREVRANGE` for top-N queries
-- **Pub/Sub**: Cross-instance message broadcasting when horizontally scaled
 - **Hash maps**: Username lookups keyed by user ID
+- **Future production extension**: Socket.IO Redis adapter / Pub/Sub for cross-instance broadcasts
 
-**PostgreSQL** (cold path — persistent data):
+**PostgreSQL** (cold path — production design, not implemented in the demo):
 
 - User profiles and authentication
 - Quiz content (questions, categories)
@@ -168,8 +166,8 @@ User                  Server                    Redis            Clients
 | **TypeScript** | Language | Type safety catches bugs at compile time; self-documenting interfaces; better IDE support; expected for senior-level work |
 | **Socket.IO** | WebSockets | Built-in rooms (quiz sessions), auto-reconnection, fallback to polling, Redis adapter for horizontal scaling |
 | **Express** | HTTP | Serves static client files, health checks, and metrics endpoints alongside Socket.IO |
-| **Redis** | Leaderboard + Pub/Sub | Sorted Sets provide O(log N) atomic score updates — purpose-built for leaderboards; Pub/Sub enables cross-instance broadcasting |
-| **PostgreSQL** | Persistent DB | ACID compliance for quiz content and user data; mature ecosystem |
+| **Redis** | Leaderboard storage | Sorted Sets provide O(log N) atomic score updates — purpose-built for leaderboards |
+| **PostgreSQL** | Persistent DB (future) | ACID compliance for quiz content and user data; mature ecosystem |
 | **Zod** | Validation | Runtime type validation for all WebSocket payloads; auto-generates descriptive error messages |
 | **Vitest** | Testing | Fast, ESM-native test runner with TypeScript support; compatible with Jest API |
 | **Prometheus + Grafana** | Monitoring | Industry standard for metrics collection and visualization |
@@ -178,17 +176,18 @@ User                  Server                    Redis            Clients
 
 | Concern | Solution | Trade-off |
 |---------|----------|-----------|
-| High concurrent users | Horizontal scaling with Socket.IO Redis adapter | Added Redis dependency; slightly higher latency |
+| High concurrent users | Current demo runs as one Node instance; production version should add Socket.IO Redis adapter plus external session/timer ownership | More infrastructure and operational complexity |
 | Leaderboard throughput | Redis Sorted Sets with throttled broadcasts | 500ms update delay acceptable for quiz UX |
-| Cross-instance messaging | Redis Pub/Sub for broadcasting | Redis becomes single point of failure — mitigate with Redis Cluster |
+| Cross-instance messaging | Planned Redis Pub/Sub / Socket.IO adapter for broadcasting | Redis becomes single point of failure — mitigate with Redis Cluster |
 | Connection limits | OS tuning (file descriptors), load balancer | Requires infrastructure configuration |
 | Data consistency | Atomic Redis operations (ZINCRBY) | Eventually consistent with PostgreSQL persistence |
 | Geographic distribution | Regional server deployments + CDN | Increased operational complexity |
 
 ## 6. Reliability & Error Handling
 
-- **Graceful degradation**: Falls back from Redis to in-memory leaderboard if Redis is unavailable
+- **Graceful degradation**: Falls back from Redis to in-memory leaderboard during startup if Redis is unavailable
 - **Auto-reconnection**: Socket.IO client reconnects automatically with exponential backoff
+- **Session restoration**: Rejoining with a previous `userId` restores the participant's score/streak while the quiz session is alive
 - **Graceful shutdown**: SIGTERM handler drains connections before exit
 - **Rate limiting**: Per-user answer throttling prevents abuse
 - **Input validation**: Zod schemas validate all incoming data
@@ -198,5 +197,6 @@ User                  Server                    Redis            Clients
 
 - **Structured JSON logging** with context, correlation IDs, and log levels
 - **Health endpoint** (`/health`) reports uptime, active sessions, connection count, memory usage
-- **Metrics endpoint** (`/metrics`) exposes counters, gauges, histograms
-- **Key metrics tracked**: active connections, answers submitted, correct answer rate, answer latency (p50/p95/p99), session count
+- **Metrics endpoint** (`/metrics`) exposes in-memory counters, gauges, and histograms for the demo
+- **Key health data tracked now**: active connections, active sessions, participants, process uptime, memory usage
+- **Production metrics to add**: answers submitted, correct answer rate, answer latency (p50/p95/p99), leaderboard broadcast latency, session lifecycle counters

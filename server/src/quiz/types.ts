@@ -42,6 +42,8 @@ export enum QuizSessionState {
 export interface Participant {
   userId: string;
   username: string;
+  /** First participant in a session; allowed to start the quiz */
+  isHost: boolean;
   joinedAt: number;
   /** Track which questions this user has answered */
   answeredQuestions: Set<string>;

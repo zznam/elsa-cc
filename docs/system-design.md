@@ -169,7 +169,7 @@ User                  Server                    Redis            Clients
 | **Redis** | Leaderboard storage | Sorted Sets provide O(log N) atomic score updates — purpose-built for leaderboards |
 | **PostgreSQL** | Persistent DB (future) | ACID compliance for quiz content and user data; mature ecosystem |
 | **Zod** | Validation | Runtime type validation for all WebSocket payloads; auto-generates descriptive error messages |
-| **Vitest** | Testing | Fast, ESM-native test runner with TypeScript support; compatible with Jest API |
+| **Vitest** | Testing | Fast, ESM-native test runner with TypeScript support; used for robust unit and end-to-end integration testing |
 | **Prometheus + Grafana** | Monitoring | Industry standard for metrics collection and visualization |
 
 ## 5. Scalability Considerations
@@ -197,6 +197,6 @@ User                  Server                    Redis            Clients
 
 - **Structured JSON logging** with context, correlation IDs, and log levels
 - **Health endpoint** (`/health`) reports uptime, active sessions, connection count, memory usage
-- **Metrics endpoint** (`/metrics`) exposes in-memory counters, gauges, and histograms for the demo
-- **Key health data tracked now**: active connections, active sessions, participants, process uptime, memory usage
-- **Production metrics to add**: answers submitted, correct answer rate, answer latency (p50/p95/p99), leaderboard broadcast latency, session lifecycle counters
+- **Metrics endpoint** (`/metrics`) exposes Prometheus metrics (counters, gauges, and histograms) using `prom-client`
+- **Prometheus metrics tracked**: total connections, active connections, active sessions, answers submitted, and answer latency histograms (p50/p95/p99)
+- **Session lifecycle tracking**: custom error tracking, robust rate limiting, and participant session state

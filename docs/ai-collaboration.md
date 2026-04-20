@@ -15,11 +15,13 @@ This document details how Generative AI tools were used throughout the design an
 **Task**: Brainstorm architecture and technology choices for a real-time quiz system.
 
 **AI Interaction**:
+
 - Prompted AI to research best practices for real-time leaderboard architecture
 - AI suggested Redis Sorted Sets for O(log N) leaderboard operations and Socket.IO for WebSocket management
 - AI helped identify the key scalability patterns: horizontal scaling with Redis Pub/Sub adapter, throttled broadcasts, sticky sessions
 
 **Verification**:
+
 - Cross-referenced Redis Sorted Set complexity claims against official Redis documentation
 - Validated Socket.IO Redis adapter approach against Socket.IO official docs
 - Reviewed the architecture diagram for completeness and correctness against industry-standard patterns
@@ -37,6 +39,7 @@ This document details how Generative AI tools were used throughout the design an
 **AI output**: Complete ScoringEngine class with configurable multipliers
 
 **Verification steps**:
+
 1. Wrote 17 unit tests covering all scoring scenarios (correct/incorrect, all difficulties, edge cases)
 2. Verified time bonus is proportional: instant answer gets 50% bonus, answer at time limit gets 0%
 3. Confirmed streak bonus caps at 50% to prevent runaway scores
@@ -52,6 +55,7 @@ This document details how Generative AI tools were used throughout the design an
 **AI output**: QuizSession class using Node.js EventEmitter for decoupled event broadcasting
 
 **Verification steps**:
+
 1. Wrote 17 unit tests covering state transitions, participant management, duplicate rejection, host assignment, and timer cleanup
 2. Manually tested state machine transitions: confirmed WAITING→ACTIVE→FINISHED only moves forward
 3. Verified double-start throws error, duplicate usernames are rejected, full sessions reject new joins
@@ -67,6 +71,7 @@ This document details how Generative AI tools were used throughout the design an
 **AI output**: Interface + two implementations using sorted arrays (in-memory) and Redis sorted sets
 
 **Verification steps**:
+
 1. Wrote 9 unit tests for InMemoryLeaderboard: CRUD, zero-score participants, ranking, isolation between quizzes
 2. Verified rankings are correct with multiple score updates
 3. Confirmed quiz isolation — scores from quiz1 don't appear in quiz2
@@ -80,10 +85,38 @@ This document details how Generative AI tools were used throughout the design an
 **Prompt nature**: "Create SocketHandler that coordinates QuizManager, LeaderboardService, and RoomManager — handle join_quiz, submit_answer, start_quiz events with rate limiting"
 
 **Verification steps**:
+
 1. Manually tested full flow in browser: join → lobby → start → answer → leaderboard update → quiz end
 2. Verified leaderboard updates are throttled (500ms interval)
 3. Tested disconnection handling — participant marked as disconnected, other users notified
 4. Verified rate limiting prevents rapid answer spam
+
+#### Integration & E2E Testing (AI-Assisted)
+
+**Tool**: Gemini / **Task**: Create an automated E2E test verifying real-time WebSocket interactions
+
+**Prompt nature**: "Write a robust integration test spawning a real server instance and multiple Socket.IO clients to test the full quiz flow including concurrent joins, answering, and reconnection"
+
+**Verification steps**:
+
+1. Spawns real HTTP/WebSocket server on random port
+2. Simulates two concurrent users (Alice and Bob)
+3. Verifies host permissions, answering behavior, and score updates
+4. Validates user reconnection flow with session recovery
+5. E2E test passes reliably ✅
+
+#### Observability & Metrics (AI-Assisted)
+
+**Tool**: Gemini / **Task**: Implement Prometheus metrics collection for monitoring quiz health
+
+**Prompt nature**: "Create a MetricsCollector using prom-client to track active connections, active sessions, answers submitted, and answer latency histograms"
+
+**Verification steps**:
+
+1. Configured counters, gauges, and histograms with `prom-client`
+2. Added unit tests (`MetricsCollector.test.ts`) covering all metric types
+3. Verified metrics reset and value extraction logic works
+4. All metrics unit tests pass ✅
 
 ---
 
@@ -94,6 +127,7 @@ This document details how Generative AI tools were used throughout the design an
 **AI output**: Complete HTML/CSS/JS client with glassmorphism design, animations, responsive layout
 
 **Verification steps**:
+
 1. Tested in Chrome browser — verified join screen, lobby, quiz, and results screens all render correctly
 2. Confirmed WebSocket connection indicator works (green dot = connected)
 3. Verified timer animation matches question time limit
@@ -107,6 +141,7 @@ This document details how Generative AI tools were used throughout the design an
 **Tool**: Gemini / **Task**: Generate system design document and architecture diagram
 
 **Verification steps**:
+
 1. Reviewed all architecture claims against actual implementation
 2. Verified data flow sequence matches actual Socket.IO event flow
 3. Confirmed technology justifications are technically accurate
@@ -122,6 +157,7 @@ This document details how Generative AI tools were used throughout the design an
 | QuizSession | High — AI generated state machine | 17 unit tests, manual state transition testing |
 | LeaderboardService | High — AI generated implementations | 9 unit tests, ranking verification |
 | SocketHandler | High — AI generated event wiring | Manual browser testing, flow verification |
+| Testing & Observability | High — AI generated E2E & metrics | Automated passing test suites |
 | Client UI | High — AI generated HTML/CSS/JS | Visual testing in browser |
 | Documentation | Medium — AI drafted, human reviewed | Cross-referenced with code |
 

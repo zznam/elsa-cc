@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration": "npm run build && vitest run --config vitest.integration.config.ts",
     "type-check": "tsc --noEmit",
     "lint": "npx @biomejs/biome check .",
     "lint:fix": "npx @biomejs/biome check --write ."

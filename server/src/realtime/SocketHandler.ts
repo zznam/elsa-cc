@@ -12,9 +12,10 @@ import { config } from '../config';
 import type { ILeaderboardStore } from '../leaderboard/LeaderboardService';
 import { RateLimiter } from '../middleware/rateLimiter';
 import { getLeaderboardSchema, joinQuizSchema, startQuizSchema, submitAnswerSchema } from '../middleware/validation';
+import { METRIC, metrics } from '../monitoring/metrics';
 import type { QuizManager } from '../quiz/QuizManager';
 import type { QuizSession } from '../quiz/QuizSession';
-import type { AnswerSubmission, Participant, QuestionPayload } from '../quiz/types';
+import type { AnswerSubmission, Leaderboard, Participant, QuestionPayload } from '../quiz/types';
 import { AppError, ErrorCode } from '../utils/errors';
 import { createLogger } from '../utils/logger';
 import type {
@@ -59,6 +60,7 @@ export class SocketHandler {
   setup(): void {
     this.io.on('connection', (socket: TypedSocket) => {
       logger.info('Client connected', { socketId: socket.id });
+      metrics.increment(METRIC.CONNECTIONS_TOTAL);
 
       this.registerHandlers(socket);
 
@@ -95,12 +97,13 @@ export class SocketHandler {
     data: JoinQuizPayload,
     callback: (response: JoinQuizResponse) => void,
   ): Promise<void> {
+    const started = Date.now();
     try {
       const validated = joinQuizSchema.parse(data);
       const { quizId, username, userId } = validated;
 
       const session = this.quizManager.getOrCreateSession(quizId);
-      const participant = this.joinOrReconnectParticipant(session, username, userId);
+      const { participant, isReconnect } = this.joinOrReconnectParticipant(session, username, userId);
 
       this.roomManager.joinRoom(socket, quizId, participant.userId, participant.username);
 
@@ -109,11 +112,14 @@ export class SocketHandler {
 
       await this.ensureLeaderboardEntry(quizId, participant);
 
-      socket.to(quizId).emit('participant_joined', {
+      const joinEvent = isReconnect ? 'participant_reconnected' : 'participant_joined';
+      socket.to(quizId).emit(joinEvent, {
         userId: participant.userId,
         username: participant.username,
         participantCount: session.participantCount,
       });
+
+      metrics.increment(METRIC.JOINS_TOTAL, 1, { kind: isReconnect ? 'reconnect' : 'new' });
 
       const participants = session.getParticipants().map((p) => ({
         userId: p.userId,
@@ -127,6 +133,7 @@ export class SocketHandler {
         username: participant.username,
         quizId,
         participantCount: session.participantCount,
+        isReconnect,
       });
 
       callback({
@@ -142,6 +149,8 @@ export class SocketHandler {
       const error = this.toAppError(err);
       logger.error('Join quiz failed', { error: error.message, quizId: this.getQuizIdForLog(data) });
       callback({ success: false, error: error.message, errorCode: error.code });
+    } finally {
+      metrics.recordHistogram(METRIC.JOIN_LATENCY_MS, Date.now() - started);
     }
   }
 
@@ -150,6 +159,7 @@ export class SocketHandler {
     data: AnswerSubmission,
     callback: (response: SubmitAnswerResponse) => void,
   ): Promise<void> {
+    const started = Date.now();
     try {
       const validated = submitAnswerSchema.parse(data);
 
@@ -186,13 +196,25 @@ export class SocketHandler {
         clientTimestamp: validated.clientTimestamp,
       });
 
+      metrics.increment(METRIC.ANSWERS_SUBMITTED);
+      if (result.correct) metrics.increment(METRIC.CORRECT_ANSWERS);
+
       if (result.pointsEarned > 0) {
-        await this.leaderboard.updateScore(
-          validated.quizId,
-          connection.userId,
-          connection.username,
-          result.pointsEarned,
-        );
+        try {
+          await this.leaderboard.updateScore(
+            validated.quizId,
+            connection.userId,
+            connection.username,
+            result.pointsEarned,
+          );
+        } catch (err) {
+          // Surface runtime Redis (or store) failure without rolling back the
+          // in-memory participant score — that's already been applied. We log,
+          // emit an error metric, and still return success so the participant
+          // sees their points; a later broadcast will reconcile.
+          metrics.increment(METRIC.REDIS_ERRORS, 1, { op: 'updateScore' });
+          logger.error('Leaderboard updateScore failed', { error: (err as Error).message });
+        }
       }
 
       this.scheduleLeaderboardBroadcast(validated.quizId);
@@ -201,6 +223,8 @@ export class SocketHandler {
       const error = this.toAppError(err);
       logger.error('Submit answer failed', { error: error.message });
       callback({ success: false, error: error.message, errorCode: error.code });
+    } finally {
+      metrics.recordHistogram(METRIC.ANSWER_LATENCY_MS, Date.now() - started);
     }
   }
 
@@ -284,6 +308,8 @@ export class SocketHandler {
     if (this.wiredSessions.has(quizId)) return;
     this.wiredSessions.add(quizId);
 
+    metrics.increment(METRIC.QUIZZES_CREATED);
+
     session.on('quizStarted', () => {
       this.io.to(quizId).emit('quiz_started', {
         quizId,
@@ -300,6 +326,7 @@ export class SocketHandler {
     });
 
     session.on('quizEnded', async () => {
+      metrics.increment(METRIC.QUIZZES_COMPLETED);
       try {
         const leaderboard = await this.leaderboard.getLeaderboard(quizId, 50);
         this.io.to(quizId).emit('quiz_ended', {
@@ -322,9 +349,13 @@ export class SocketHandler {
     });
   }
 
-  private joinOrReconnectParticipant(session: QuizSession, username: string, userId?: string): Participant {
+  private joinOrReconnectParticipant(
+    session: QuizSession,
+    username: string,
+    userId?: string,
+  ): { participant: Participant; isReconnect: boolean } {
     if (!userId) {
-      return session.addParticipant(username);
+      return { participant: session.addParticipant(username), isReconnect: false };
     }
 
     const participant = session.reconnectParticipant(userId);
@@ -336,7 +367,7 @@ export class SocketHandler {
       throw new AppError(ErrorCode.USER_NOT_IN_QUIZ, 'Previous participant does not match this username');
     }
 
-    return participant;
+    return { participant, isReconnect: true };
   }
 
   private async ensureLeaderboardEntry(quizId: string, participant: Participant): Promise<void> {
@@ -358,29 +389,68 @@ export class SocketHandler {
     return typeof quizId === 'string' ? quizId : undefined;
   }
 
-  /** Throttled broadcast — at most once per configured interval to avoid flooding clients. */
+  /**
+   * Throttled broadcast — at most once per configured interval.
+   *
+   * Each socket in the room receives the top-N leaderboard plus, when they are
+   * ranked below the cutoff, their own rank in `selfRank`. This keeps payloads
+   * small for hundreds of participants while still giving every user visible
+   * progress feedback.
+   */
   private scheduleLeaderboardBroadcast(quizId: string): void {
     this.pendingLeaderboardUpdates.add(quizId);
     if (this.leaderboardBroadcastTimers.has(quizId)) return;
 
     const timer = setTimeout(async () => {
+      const started = Date.now();
       this.leaderboardBroadcastTimers.delete(quizId);
       this.pendingLeaderboardUpdates.delete(quizId);
 
       try {
         const leaderboard = await this.leaderboard.getLeaderboard(quizId, 20);
-        this.io.to(quizId).emit('leaderboard_update', leaderboard);
+        await this.emitLeaderboardToRoom(quizId, leaderboard);
       } catch (err) {
+        metrics.increment(METRIC.REDIS_ERRORS, 1, { op: 'getLeaderboard' });
         logger.error('Failed to broadcast leaderboard', { error: (err as Error).message });
+      } finally {
+        metrics.recordHistogram(METRIC.LEADERBOARD_BROADCAST_MS, Date.now() - started);
       }
     }, config.leaderboardBroadcastIntervalMs);
 
     this.leaderboardBroadcastTimers.set(quizId, timer);
   }
 
+  /**
+   * Send per-socket leaderboard updates so users outside the top-N still see
+   * their own rank. Top-N entries are identical across sockets; only the
+   * `selfRank` attachment differs.
+   */
+  private async emitLeaderboardToRoom(quizId: string, top: Leaderboard): Promise<void> {
+    const topIds = new Set(top.entries.map((e) => e.userId));
+    const room = this.roomManager.getConnectionsForQuiz(quizId);
+
+    await Promise.all(
+      room.map(async (conn) => {
+        let selfRank;
+        if (!topIds.has(conn.userId)) {
+          try {
+            selfRank = (await this.leaderboard.getUserRank(quizId, conn.userId)) || undefined;
+          } catch (err) {
+            metrics.increment(METRIC.REDIS_ERRORS, 1, { op: 'getUserRank' });
+            logger.debug('getUserRank failed — omitting selfRank', { error: (err as Error).message });
+          }
+        }
+
+        this.io.to(conn.socketId).emit('leaderboard_update', { ...top, selfRank });
+      }),
+    );
+  }
+
   // ─── Disconnect Handling ──────────────────────────────────────────────────
 
   private handleDisconnect(socket: TypedSocket): void {
+    metrics.increment(METRIC.DISCONNECTIONS_TOTAL);
+
     const connection = this.roomManager.leaveRoom(socket.id);
     if (!connection) return;
 

@@ -1,76 +1,138 @@
 /**
- * Metrics collection for monitoring and observability.
- * In production, these would be exposed as Prometheus metrics.
- * For this implementation, they're tracked in-memory and exposed via HTTP.
+ * Metrics collection backed by `prom-client`.
+ *
+ * Exposes counters, gauges, and histograms in Prometheus text exposition
+ * format via `metrics.render()`. Thin wrapper keeps call sites ergonomic
+ * and lets tests reset state deterministically.
  */
 
-class MetricsCollector {
-  private counters: Map<string, number> = new Map();
-  private gauges: Map<string, number> = new Map();
-  private histograms: Map<string, number[]> = new Map();
+import {
+  Counter,
+  type CounterConfiguration,
+  Gauge,
+  type GaugeConfiguration,
+  Histogram,
+  type HistogramConfiguration,
+  type LabelValues,
+  Registry,
+  collectDefaultMetrics,
+} from 'prom-client';
 
-  increment(name: string, value: number = 1): void {
-    const current = this.counters.get(name) || 0;
-    this.counters.set(name, current + value);
+/** Metric names as constants to prevent typos. */
+export const METRIC = {
+  CONNECTIONS_TOTAL: 'quiz_connections_total',
+  DISCONNECTIONS_TOTAL: 'quiz_disconnections_total',
+  JOINS_TOTAL: 'quiz_joins_total',
+  ANSWERS_SUBMITTED: 'quiz_answers_submitted_total',
+  CORRECT_ANSWERS: 'quiz_correct_answers_total',
+  QUIZZES_CREATED: 'quiz_sessions_created_total',
+  QUIZZES_COMPLETED: 'quiz_sessions_completed_total',
+  REDIS_ERRORS: 'quiz_redis_errors_total',
+  ACTIVE_CONNECTIONS: 'quiz_active_connections',
+  ACTIVE_SESSIONS: 'quiz_active_sessions',
+  ACTIVE_PARTICIPANTS: 'quiz_active_participants',
+  ANSWER_LATENCY_MS: 'quiz_answer_latency_ms',
+  LEADERBOARD_BROADCAST_MS: 'quiz_leaderboard_broadcast_ms',
+  JOIN_LATENCY_MS: 'quiz_join_latency_ms',
+} as const;
+
+/** Latency buckets tuned for sub-second, real-time event work (in ms). */
+const LATENCY_BUCKETS_MS = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
+
+class MetricsRegistry {
+  private registry: Registry;
+  private counters: Map<string, Counter<string>> = new Map();
+  private gauges: Map<string, Gauge<string>> = new Map();
+  private histograms: Map<string, Histogram<string>> = new Map();
+
+  constructor() {
+    this.registry = new Registry();
+    this.bootstrap();
   }
 
-  setGauge(name: string, value: number): void {
-    this.gauges.set(name, value);
+  private bootstrap(): void {
+    collectDefaultMetrics({ register: this.registry });
+
+    this.counter({ name: METRIC.CONNECTIONS_TOTAL, help: 'Socket.IO connections accepted' });
+    this.counter({ name: METRIC.DISCONNECTIONS_TOTAL, help: 'Socket.IO disconnections observed' });
+    this.counter({ name: METRIC.JOINS_TOTAL, help: 'Quiz joins', labelNames: ['kind'] });
+    this.counter({ name: METRIC.ANSWERS_SUBMITTED, help: 'Answers submitted by clients' });
+    this.counter({ name: METRIC.CORRECT_ANSWERS, help: 'Answers scored correct server-side' });
+    this.counter({ name: METRIC.QUIZZES_CREATED, help: 'Quiz sessions created' });
+    this.counter({ name: METRIC.QUIZZES_COMPLETED, help: 'Quiz sessions reaching FINISHED' });
+    this.counter({ name: METRIC.REDIS_ERRORS, help: 'Runtime Redis failures', labelNames: ['op'] });
+
+    this.gauge({ name: METRIC.ACTIVE_CONNECTIONS, help: 'Currently connected sockets' });
+    this.gauge({ name: METRIC.ACTIVE_SESSIONS, help: 'In-flight quiz sessions' });
+    this.gauge({ name: METRIC.ACTIVE_PARTICIPANTS, help: 'Participants across all sessions' });
+
+    this.histogram({
+      name: METRIC.ANSWER_LATENCY_MS,
+      help: 'Server time between question start and answer receipt',
+      buckets: LATENCY_BUCKETS_MS,
+    });
+    this.histogram({
+      name: METRIC.LEADERBOARD_BROADCAST_MS,
+      help: 'Time spent fetching + emitting leaderboard updates',
+      buckets: LATENCY_BUCKETS_MS,
+    });
+    this.histogram({
+      name: METRIC.JOIN_LATENCY_MS,
+      help: 'Time to service a join_quiz event',
+      buckets: LATENCY_BUCKETS_MS,
+    });
   }
 
-  recordHistogram(name: string, value: number): void {
-    const values = this.histograms.get(name) || [];
-    values.push(value);
-    // Cap at 1000 values to avoid unbounded growth
-    if (values.length > 1000) {
-      values.shift();
-    }
-    this.histograms.set(name, values);
+  private counter(config: CounterConfiguration<string>): void {
+    const c = new Counter({ ...config, registers: [this.registry] });
+    this.counters.set(config.name, c);
   }
 
-  getAll(): Record<string, unknown> {
-    const result: Record<string, unknown> = {
-      counters: Object.fromEntries(this.counters),
-      gauges: Object.fromEntries(this.gauges),
-      histograms: {} as Record<string, unknown>,
-    };
-    const histograms = result.histograms as Record<string, unknown>;
-    for (const [name, values] of this.histograms.entries()) {
-      const sorted = [...values].sort((a, b) => a - b);
-      histograms[name] = {
-        count: sorted.length,
-        min: sorted[0],
-        max: sorted[sorted.length - 1],
-        avg: Math.round(sorted.reduce((a, b) => a + b, 0) / sorted.length),
-        p50: sorted[Math.floor(sorted.length * 0.5)],
-        p95: sorted[Math.floor(sorted.length * 0.95)],
-        p99: sorted[Math.floor(sorted.length * 0.99)],
-      };
-    }
-
-    return result;
+  private gauge(config: GaugeConfiguration<string>): void {
+    const g = new Gauge({ ...config, registers: [this.registry] });
+    this.gauges.set(config.name, g);
   }
 
+  private histogram(config: HistogramConfiguration<string>): void {
+    const h = new Histogram({ ...config, registers: [this.registry] });
+    this.histograms.set(config.name, h);
+  }
+
+  increment(name: string, value: number = 1, labels?: LabelValues<string>): void {
+    const counter = this.counters.get(name);
+    if (!counter) return;
+    if (labels) counter.inc(labels, value);
+    else counter.inc(value);
+  }
+
+  setGauge(name: string, value: number, labels?: LabelValues<string>): void {
+    const gauge = this.gauges.get(name);
+    if (!gauge) return;
+    if (labels) gauge.set(labels, value);
+    else gauge.set(value);
+  }
+
+  recordHistogram(name: string, value: number, labels?: LabelValues<string>): void {
+    const histogram = this.histograms.get(name);
+    if (!histogram) return;
+    if (labels) histogram.observe(labels, value);
+    else histogram.observe(value);
+  }
+
+  /** Prometheus text exposition format (for /metrics scrape endpoint). */
+  async render(): Promise<string> {
+    return this.registry.metrics();
+  }
+
+  contentType(): string {
+    return this.registry.contentType;
+  }
+
+  /** Test-only: reset all metrics to zero without losing metric registration. */
   reset(): void {
-    this.counters.clear();
-    this.gauges.clear();
-    this.histograms.clear();
+    this.registry.resetMetrics();
   }
 }
 
-/** Global metrics instance */
-export const metrics = new MetricsCollector();
-
-// Metric names as constants to prevent typos
-export const METRIC = {
-  CONNECTIONS_TOTAL: 'connections_total',
-  DISCONNECTIONS_TOTAL: 'disconnections_total',
-  ANSWERS_SUBMITTED: 'answers_submitted',
-  CORRECT_ANSWERS: 'correct_answers',
-  QUIZZES_CREATED: 'quizzes_created',
-  QUIZZES_COMPLETED: 'quizzes_completed',
-  ACTIVE_CONNECTIONS: 'active_connections',
-  ACTIVE_SESSIONS: 'active_sessions',
-  ANSWER_LATENCY_MS: 'answer_latency_ms',
-  LEADERBOARD_BROADCAST_MS: 'leaderboard_broadcast_ms',
-};
+/** Singleton registry used everywhere. */
+export const metrics = new MetricsRegistry();

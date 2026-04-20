@@ -60,6 +60,8 @@ export class QuizSession extends EventEmitter {
   private startedAt: number | null;
   private readonly maxParticipants: number;
   private _hostUserId: string | null;
+  /** Wall-clock of the last meaningful state change; drives idle-session cleanup. */
+  private _lastActivityAt: number;
 
   constructor(quiz: Quiz, maxParticipants: number = 100) {
     super();
@@ -76,6 +78,15 @@ export class QuizSession extends EventEmitter {
     this.startedAt = null;
     this.maxParticipants = maxParticipants;
     this._hostUserId = null;
+    this._lastActivityAt = Date.now();
+  }
+
+  private touch(): void {
+    this._lastActivityAt = Date.now();
+  }
+
+  get lastActivityAt(): number {
+    return this._lastActivityAt;
   }
 
   // ─── Getters ──────────────────────────────────────────────────────────────
@@ -145,6 +156,7 @@ export class QuizSession extends EventEmitter {
     }
 
     this.participants.set(participant.userId, participant);
+    this.touch();
 
     logger.info('Participant joined', {
       sessionId: this.sessionId,
@@ -172,6 +184,7 @@ export class QuizSession extends EventEmitter {
     const participant = this.participants.get(userId);
     if (participant) {
       participant.isConnected = true;
+      this.touch();
       logger.info('Participant reconnected', { sessionId: this.sessionId, userId });
     }
     return participant || null;
@@ -198,6 +211,7 @@ export class QuizSession extends EventEmitter {
 
     this._state = State.ACTIVE;
     this.startedAt = Date.now();
+    this.touch();
 
     logger.info('Quiz started', {
       sessionId: this.sessionId,
@@ -340,6 +354,7 @@ export class QuizSession extends EventEmitter {
     participant.answeredQuestions.add(question.id);
     participant.totalScore = result.totalScore;
     participant.streak = result.currentStreak;
+    this.touch();
 
     logger.info('Answer submitted', {
       sessionId: this.sessionId,

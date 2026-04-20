@@ -61,9 +61,18 @@
       addParticipantChip(data.userId, data.username);
     });
 
-    state.socket.on('participant_left', (data) => {
+    state.socket.on('participant_reconnected', (data) => {
+      // Restore the chip in case we had optimistically removed it on disconnect.
+      addParticipantChip(data.userId, data.username);
       const chip = document.querySelector(`[data-user-id="${data.userId}"]`);
-      if (chip) chip.remove();
+      if (chip) chip.classList.remove('is-disconnected');
+    });
+
+    state.socket.on('participant_left', (data) => {
+      // Soft-remove: the participant may come back. Mark visually instead of
+      // deleting, so a flaky network doesn't make peers disappear/reappear.
+      const chip = document.querySelector(`[data-user-id="${data.userId}"]`);
+      if (chip) chip.classList.add('is-disconnected');
     });
 
     state.socket.on('quiz_started', (data) => {
@@ -79,7 +88,7 @@
     });
 
     state.socket.on('leaderboard_update', (data) => {
-      renderLeaderboard(data.entries);
+      renderLeaderboard(data.entries, data.selfRank);
     });
 
     state.socket.on('quiz_ended', (data) => {
@@ -327,32 +336,42 @@
   }
 
   // ─── Leaderboard ───────────────────────────────────────────
-  function renderLeaderboard(entries) {
+  function renderLeaderboard(entries, selfRank) {
     const list = $('leaderboard-list');
     if (!entries || entries.length === 0) {
       list.innerHTML = '<div class="leaderboard-empty">Waiting for scores...</div>';
       return;
     }
 
-    list.innerHTML = entries.map((e) => {
-      const isMe = e.userId === state.userId;
-      const topClass = e.rank <= 3 ? ` top-${e.rank}` : '';
-      const meClass = isMe ? ' is-me' : '';
-      const medal = e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank;
-      return `<div class="lb-entry${topClass}${meClass}">
-        <span class="lb-rank">${medal}</span>
-        <span class="lb-name">${isMe ? '⭐ ' + e.username : e.username}</span>
-        <span class="lb-score">${e.score}</span>
-      </div>`;
-    }).join('');
+    const topRows = entries.map((e) => renderLeaderboardRow(e));
 
-    // Update my score bar
-    const me = entries.find((e) => e.userId === state.userId);
+    // Append self-rank below the top-N when the server flagged we are outside
+    // the visible window. Gives users a persistent "you are #N" indicator.
+    if (selfRank && !entries.some((e) => e.userId === state.userId)) {
+      topRows.push('<div class="lb-separator">\u2026</div>');
+      topRows.push(renderLeaderboardRow(selfRank));
+    }
+
+    list.innerHTML = topRows.join('');
+
+    const me = entries.find((e) => e.userId === state.userId) || selfRank;
     if (me) {
       $('my-rank').textContent = '#' + me.rank;
       $('my-name').textContent = me.username;
       $('my-score').textContent = me.score;
     }
+  }
+
+  function renderLeaderboardRow(e) {
+    const isMe = e.userId === state.userId;
+    const topClass = e.rank <= 3 ? ` top-${e.rank}` : '';
+    const meClass = isMe ? ' is-me' : '';
+    const medal = e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank;
+    return `<div class="lb-entry${topClass}${meClass}">
+      <span class="lb-rank">${medal}</span>
+      <span class="lb-name">${isMe ? '⭐ ' + e.username : e.username}</span>
+      <span class="lb-score">${e.score}</span>
+    </div>`;
   }
 
   // ─── Results ───────────────────────────────────────────────

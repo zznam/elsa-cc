@@ -8,7 +8,9 @@
 
 import { createServer } from 'node:http';
 import path from 'node:path';
+import { createAdapter } from '@socket.io/redis-adapter';
 import express from 'express';
+import Redis from 'ioredis';
 import { Server } from 'socket.io';
 import { config } from './config';
 import { listQuizzes } from './data/mockQuizzes';
@@ -69,14 +71,48 @@ async function main(): Promise<void> {
     transports: ['websocket', 'polling'],
   });
 
+  // ─── Socket.IO Redis Adapter (multi-node broadcasts) ──────────────────
+  // Opt-in via USE_REDIS_ADAPTER=1 and REDIS_URL. Single-node remains default.
+  let adapterPub: Redis | null = null;
+  let adapterSub: Redis | null = null;
+
+  if (config.useRedisAdapter && config.redisUrl) {
+    try {
+      adapterPub = new Redis(config.redisUrl);
+      adapterSub = adapterPub.duplicate();
+      io.adapter(createAdapter(adapterPub, adapterSub));
+      logger.info('Socket.IO Redis adapter enabled');
+    } catch (err) {
+      logger.warn('Failed to enable Socket.IO Redis adapter — continuing single-node', {
+        error: (err as Error).message,
+      });
+      adapterPub?.disconnect();
+      adapterSub?.disconnect();
+      adapterPub = null;
+      adapterSub = null;
+    }
+  }
+
   const socketHandler = new SocketHandler(io, quizManager, leaderboard, roomManager);
   socketHandler.setup();
 
   // ─── HTTP Routes ──────────────────────────────────────────────────────
   app.get('/health', createHealthCheck(quizManager, roomManager));
 
-  app.get('/metrics', (_req, res) => {
-    res.json(metrics.getAll());
+  app.get('/metrics', async (_req, res) => {
+    // Refresh gauges that are cheap to compute on-demand.
+    const quizMetrics = quizManager.getMetrics();
+    metrics.setGauge('quiz_active_sessions', quizMetrics.activeSessions);
+    metrics.setGauge('quiz_active_participants', quizMetrics.totalParticipants);
+    metrics.setGauge('quiz_active_connections', roomManager.getActiveConnectionCount());
+
+    try {
+      res.setHeader('Content-Type', metrics.contentType());
+      res.send(await metrics.render());
+    } catch (err) {
+      logger.error('Failed to render metrics', { error: (err as Error).message });
+      res.status(500).send('metrics_render_failed');
+    }
   });
 
   app.get('/api/quizzes', (_req, res) => {
@@ -107,6 +143,9 @@ async function main(): Promise<void> {
     if (leaderboard instanceof RedisLeaderboard) {
       await (leaderboard as RedisLeaderboard).disconnect();
     }
+
+    if (adapterPub) await adapterPub.quit().catch(() => {});
+    if (adapterSub) await adapterSub.quit().catch(() => {});
 
     httpServer.close(() => {
       logger.info('Server shut down successfully');

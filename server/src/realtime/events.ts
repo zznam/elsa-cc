@@ -3,7 +3,7 @@
  * Defines the contract between client and server for real-time communication.
  */
 
-import type { AnswerSubmission, Leaderboard, QuestionPayload, ScoreResult } from '../quiz/types';
+import type { AnswerSubmission, Leaderboard, LeaderboardEntry, QuestionPayload, ScoreResult } from '../quiz/types';
 
 // ─── Client → Server Events ──────────────────────────────────────────────────
 
@@ -24,8 +24,11 @@ export interface ClientToServerEvents {
 // ─── Server → Client Events ──────────────────────────────────────────────────
 
 export interface ServerToClientEvents {
-  /** A new participant joined the quiz */
+  /** A new participant joined the quiz for the first time */
   participant_joined: (data: ParticipantJoinedPayload) => void;
+
+  /** A previously connected participant reconnected after a disconnect */
+  participant_reconnected: (data: ParticipantJoinedPayload) => void;
 
   /** A participant disconnected */
   participant_left: (data: { userId: string; username: string }) => void;
@@ -36,8 +39,12 @@ export interface ServerToClientEvents {
   /** New question is available */
   question: (data: QuestionPayload) => void;
 
-  /** Leaderboard has been updated */
-  leaderboard_update: (data: Leaderboard) => void;
+  /**
+   * Leaderboard has been updated. Each socket in a quiz room receives the
+   * shared top-N plus their own rank in `selfRank` when they fall outside
+   * the top-N window.
+   */
+  leaderboard_update: (data: LeaderboardUpdatePayload) => void;
 
   /** Quiz has ended — final results */
   quiz_ended: (data: QuizEndedPayload) => void;
@@ -105,4 +112,10 @@ export interface QuizEndedPayload {
 export interface ErrorPayload {
   code: string;
   message: string;
+}
+
+/** Leaderboard broadcast payload, with optional selfRank for out-of-top-N users. */
+export interface LeaderboardUpdatePayload extends Leaderboard {
+  /** Receiver's rank when outside top-N; omitted when the receiver is in top-N. */
+  selfRank?: LeaderboardEntry;
 }

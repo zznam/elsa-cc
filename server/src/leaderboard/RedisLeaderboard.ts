@@ -63,15 +63,51 @@ export class RedisLeaderboard implements ILeaderboardStore {
     const lbKey = this.leaderboardKey(quizId);
     const unKey = this.usernameKey(quizId);
 
-    // Use a pipeline for atomic batch operations
-    const pipeline = this.redis.pipeline();
-    pipeline.zincrby(lbKey, scoreIncrement, userId);
-    pipeline.hset(unKey, userId, username);
-    pipeline.expire(lbKey, LEADERBOARD_TTL_SECONDS);
-    pipeline.expire(unKey, LEADERBOARD_TTL_SECONDS);
-    await pipeline.exec();
+    // MULTI/EXEC gives us a real Redis transaction — all four commands run
+    // atomically on the server with no interleaving from other clients. If
+    // anything in the block fails we reject with the first error so callers
+    // can decide whether to retry.
+    const results = await this.withRetry('updateScore', () =>
+      this.redis
+        .multi()
+        .zincrby(lbKey, scoreIncrement, userId)
+        .hset(unKey, userId, username)
+        .expire(lbKey, LEADERBOARD_TTL_SECONDS)
+        .expire(unKey, LEADERBOARD_TTL_SECONDS)
+        .exec(),
+    );
+
+    if (!results) {
+      throw new Error('Redis transaction aborted (EXEC returned null)');
+    }
+    for (const [err] of results) {
+      if (err) throw err;
+    }
 
     logger.debug('Score updated in Redis', { quizId, userId, scoreIncrement });
+  }
+
+  /**
+   * Run an operation with bounded retry + exponential backoff. Complements
+   * ioredis' request-level retries by absorbing transient network blips at
+   * the transaction boundary without escalating to the caller.
+   */
+  private async withRetry<T>(op: string, fn: () => Promise<T>, attempts: number = 3): Promise<T> {
+    let lastError: unknown;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastError = err;
+        logger.warn('Redis operation failed — retrying', {
+          op,
+          attempt: i + 1,
+          error: (err as Error).message,
+        });
+        await new Promise((resolve) => setTimeout(resolve, Math.min(50 * 2 ** i, 500)));
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(`Redis ${op} failed`);
   }
 
   async getTopN(quizId: string, topN: number = 10): Promise<LeaderboardEntry[]> {

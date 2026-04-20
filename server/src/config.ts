@@ -20,6 +20,8 @@ export interface AppConfig {
   sessionTimeoutMs: number;
   /** Rate limit: max answer submissions per second per user */
   maxAnswersPerSecond: number;
+  /** Enable Socket.IO Redis adapter for multi-node broadcasts (requires REDIS_URL) */
+  useRedisAdapter: boolean;
 }
 
 export function loadConfig(): AppConfig {
@@ -32,6 +34,7 @@ export function loadConfig(): AppConfig {
     leaderboardBroadcastIntervalMs: parseInt(process.env.LEADERBOARD_INTERVAL || '500', 10),
     sessionTimeoutMs: parseInt(process.env.SESSION_TIMEOUT || '3600000', 10), // 1 hour
     maxAnswersPerSecond: parseInt(process.env.MAX_ANSWERS_PER_SEC || '2', 10),
+    useRedisAdapter: process.env.USE_REDIS_ADAPTER === '1' || process.env.USE_REDIS_ADAPTER === 'true',
   };
 }
 

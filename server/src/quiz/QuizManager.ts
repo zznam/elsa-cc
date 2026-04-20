@@ -75,23 +75,47 @@ export class QuizManager {
   }
 
   /**
-   * Remove finished sessions that have been inactive.
+   * Remove finished or idle sessions.
+   *
+   * A session is reaped when:
+   *  - it has FINISHED (always), or
+   *  - its `lastActivityAt` is older than `config.sessionTimeoutMs` — covers
+   *    WAITING sessions whose host never pressed start and ACTIVE sessions
+   *    where all participants have been silent for too long.
    */
   private cleanupSessions(): void {
-    const _now = Date.now();
+    const now = Date.now();
+    const ttl = config.sessionTimeoutMs;
     let cleaned = 0;
 
     for (const [quizId, session] of this.sessions.entries()) {
-      if (session.state === 'FINISHED') {
+      const finished = session.state === 'FINISHED';
+      const idle = ttl > 0 && now - session.lastActivityAt > ttl;
+
+      if (finished || idle) {
         session.destroy();
         this.sessions.delete(quizId);
         cleaned++;
+
+        if (idle && !finished) {
+          logger.info('Reaped idle session', {
+            quizId,
+            sessionId: session.sessionId,
+            state: session.state,
+            idleMs: now - session.lastActivityAt,
+          });
+        }
       }
     }
 
     if (cleaned > 0) {
       logger.info('Cleaned up sessions', { cleaned, remaining: this.sessions.size });
     }
+  }
+
+  /** Test hook: run the cleanup loop once, synchronously. */
+  runCleanup(): void {
+    this.cleanupSessions();
   }
 
   /**
